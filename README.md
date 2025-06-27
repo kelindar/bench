@@ -38,12 +38,12 @@ A **lightweight, statistical benchmarking library** for Go, designed for robust,
 ```
 name              time/op     ops/s      allocs/op  vs prev            vs ref
 ----------------- ----------- ---------- ---------- ------------------ ------------------
-and 1.0K (seq)    920.0 ns    1.1M       4          ✅ +7% (p=0.000)    ❌ -18% (p=0.000)
+and 1.0K (seq)    920.0 ns    1.1M       4          ✅ +7% (p=0.000)   ❌ -18% (p=0.000)
 and 1.0K (rnd)    665.9 ns    1.5M       4          ~ similar          ❌ -11% (p=0.000)
 and 1.0K (sps)    1.3 µs      754.5K     19         ~ similar          ~ -2% (p=0.004)
-and 1.0K (dns)    172.0 ns    5.8M       4          ❌ -7% (p=0.000)    ❌ -18% (p=0.000)
+and 1.0K (dns)    172.0 ns    5.8M       4          ❌ -7% (p=0.000)   ❌ -18% (p=0.000)
 and 10.0M (seq)   191.3 µs    5.2K       156        ~ +5% (p=0.001)    ✅ +45% (p=0.000)
-and 10.0M (rnd)   274.1 µs    3.6K       176        ✅ +29% (p=0.000)   ✅ +2% (p=0.001)
+and 10.0M (rnd)   274.1 µs    3.6K       176        ✅ +29% (p=0.000)  ✅ +2% (p=0.001)
 ```
 
 

@@ -117,7 +117,7 @@ func (r *B) shouldRun(name string) bool {
 }
 
 // benchmark runs a function repeatedly and returns performance samples
-func (r *B) benchmark(fn func()) (samples []float64, allocs []float64) {
+func (r *B) benchmark(fn func(*B)) (samples []float64, allocs []float64) {
 	samples = make([]float64, 0, r.samples)
 	allocs = make([]float64, 0, r.samples)
 	for i := 0; i < r.samples; i++ {
@@ -131,7 +131,7 @@ func (r *B) benchmark(fn func()) (samples []float64, allocs []float64) {
 		start := time.Now()
 		ops := 0
 		for time.Since(start) < r.duration {
-			fn()
+			fn(r)
 			ops++
 		}
 		elapsed := time.Since(start)
@@ -258,7 +258,7 @@ func (r *B) formatOps(opsPerSec float64) string {
 }
 
 // Run executes a benchmark with optional reference comparison
-func (r *B) Run(name string, ourFn func(), refFn ...func()) {
+func (r *B) Run(name string, ourFn func(*B), refFn ...func(*B)) {
 	if !r.shouldRun(name) {
 		return
 	}
