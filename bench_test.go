@@ -61,8 +61,8 @@ func TestRunAndFiltering(t *testing.T) {
 	defer os.Remove(file)
 	var ran, ranRef bool
 	Run(func(b *B) {
-		b.Run("foo", func(*B) { ran = true })
-		b.Run("bar", func(*B) {}, func(*B) { ranRef = true })
+		b.Run("foo", func(b *B, op int) { ran = true })
+		b.Run("bar", func(b *B, op int) {}, func(b *B, op int) { ranRef = true })
 	}, WithFile(file), WithFilter("foo"))
 	assert.True(t, ran, "filtered benchmark did not run")
 	assert.False(t, ranRef, "filtered out benchmark ran")
@@ -72,7 +72,7 @@ func TestRunWithReferenceAndNoPrev(t *testing.T) {
 	file := "test_bench3.json"
 	defer os.Remove(file)
 	Run(func(b *B) {
-		b.Run("bench", func(*B) {}, func(*B) {})
+		b.Run("bench", func(b *B, op int) {}, func(b *B, op int) {})
 	}, WithFile(file), WithReference())
 	_, err := os.Stat(file)
 	assert.NoError(t, err, "results file not created")

@@ -2,6 +2,7 @@ package bench
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"runtime"
@@ -81,11 +82,15 @@ type B struct {
 
 // Run executes benchmarks with the given configuration
 func Run(fn func(*B), opts ...Option) {
+	prefix := flag.String("bench", "", "Run only benchmarks with this prefix")
+	flag.Parse()
+
 	cfg := config{
 		filename: DefaultFilename,
 		samples:  DefaultSamples,
 		duration: DefaultDuration,
 		tableFmt: DefaultTableFmt,
+		filter:   *prefix,
 	}
 
 	for _, opt := range opts {
@@ -117,7 +122,7 @@ func (r *B) shouldRun(name string) bool {
 }
 
 // benchmark runs a function repeatedly and returns performance samples
-func (r *B) benchmark(fn func(*B)) (samples []float64, allocs []float64) {
+func (r *B) benchmark(fn func(b *B, op int)) (samples []float64, allocs []float64) {
 	samples = make([]float64, 0, r.samples)
 	allocs = make([]float64, 0, r.samples)
 	for i := 0; i < r.samples; i++ {
@@ -131,7 +136,7 @@ func (r *B) benchmark(fn func(*B)) (samples []float64, allocs []float64) {
 		start := time.Now()
 		ops := 0
 		for time.Since(start) < r.duration {
-			fn(r)
+			fn(r, ops)
 			ops++
 		}
 		elapsed := time.Since(start)
@@ -258,7 +263,7 @@ func (r *B) formatOps(opsPerSec float64) string {
 }
 
 // Run executes a benchmark with optional reference comparison
-func (r *B) Run(name string, ourFn func(*B), refFn ...func(*B)) {
+func (r *B) Run(name string, ourFn func(b *B, op int), refFn ...func(b *B, op int)) {
 	if !r.shouldRun(name) {
 		return
 	}
@@ -295,7 +300,7 @@ func (r *B) Run(name string, ourFn func(*B), refFn ...func(*B)) {
 	// Calculate vs reference if provided
 	vsRef := ""
 	if len(refFn) > 0 && refFn[0] != nil {
-		refSamples, _ := r.benchmark(refFn[0])
+		refSamples, _ := r.benchmark(func(b *B, op int) { refFn[0](b, op) })
 		vsRef = r.formatComparison(ourSamples, refSamples)
 	}
 
