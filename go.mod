@@ -3,7 +3,6 @@ module github.com/kelindar/bench
 go 1.23.2
 
 require (
-	github.com/codahale/tinystat v0.1.1
 	github.com/stretchr/testify v1.10.0
 	gonum.org/v1/gonum v0.8.2
 )
