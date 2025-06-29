@@ -23,6 +23,8 @@ func TestWithOptions(t *testing.T) {
 	assert.Equal(t, 123*time.Millisecond, cfg.duration)
 	assert.True(t, cfg.showRef)
 	assert.True(t, cfg.dryRun)
+	_, ok := cfg.codec.(jsonCodec)
+	assert.True(t, ok)
 }
 
 func TestFormatHelpers(t *testing.T) {
@@ -46,16 +48,6 @@ func TestShouldRun(t *testing.T) {
 	assert.False(t, b.shouldRun("bar"))
 	b.filter = ""
 	assert.True(t, b.shouldRun("anything"))
-}
-
-func TestSaveLoadResult(t *testing.T) {
-	file := "test_bench.json"
-	defer os.Remove(file)
-	b := &B{config: config{filename: file}}
-	res := Result{Name: "bench", Samples: []float64{1, 2, 3}, Timestamp: 123}
-	b.saveResult(res)
-	loaded := b.loadResults()
-	assert.Equal(t, int64(123), loaded["bench"].Timestamp)
 }
 
 func TestRunAndFiltering(t *testing.T) {

@@ -1,6 +1,9 @@
 package bench
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Option configures the benchmark runner
 // It mutates the internal config used by Run.
@@ -15,12 +18,18 @@ type config struct {
 	tableFmt string
 	showRef  bool
 	dryRun   bool
+	codec    codec
 }
 
 // WithFile sets the filename for benchmark results
 func WithFile(filename string) Option {
 	return func(c *config) {
 		c.filename = filename
+		if strings.HasSuffix(filename, ".gob") {
+			c.codec = gobCodec{}
+		} else {
+			c.codec = jsonCodec{}
+		}
 	}
 }
 

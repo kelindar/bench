@@ -1,7 +1,6 @@
 package bench
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -35,9 +34,23 @@ type B struct {
 
 // Run executes benchmarks with the given configuration
 func Run(fn func(*B), opts ...Option) {
-	prefix := flag.String("bench", "", "Run only benchmarks with this prefix")
-	dry := flag.Bool("n", false, "dry run - do not update bench.json")
-	flag.Parse()
+	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	prefix := fs.String("bench", "", "Run only benchmarks with this prefix")
+	dry := fs.Bool("n", false, "dry run - do not update bench.json")
+
+	// Parse only our known flags from os.Args
+	args := []string{}
+	for i := 1; i < len(os.Args); i++ {
+		a := os.Args[i]
+		if strings.HasPrefix(a, "-bench") || a == "-bench" || strings.HasPrefix(a, "-n") || a == "-n" {
+			args = append(args, a)
+			if !strings.Contains(a, "=") && i+1 < len(os.Args) {
+				i++
+				args = append(args, os.Args[i])
+			}
+		}
+	}
+	_ = fs.Parse(args)
 
 	cfg := config{
 		filename: DefaultFilename,
@@ -46,6 +59,7 @@ func Run(fn func(*B), opts ...Option) {
 		tableFmt: DefaultTableFmt,
 		filter:   *prefix,
 		dryRun:   *dry,
+		codec:    jsonCodec{},
 	}
 
 	for _, opt := range opts {
@@ -116,43 +130,6 @@ func (r *B) formatAllocs(allocsPerOp float64) string {
 		return fmt.Sprintf("%.0f", allocsPerOp)
 	default:
 		return "0"
-	}
-}
-
-// loadResults loads previous results from JSON file
-func (r *B) loadResults() map[string]Result {
-	data, err := os.ReadFile(r.filename)
-	if err != nil {
-		return make(map[string]Result)
-	}
-
-	var results map[string]Result
-	if err := json.Unmarshal(data, &results); err != nil {
-		return make(map[string]Result)
-	}
-
-	return results
-}
-
-// saveResult saves a single result incrementally
-func (r *B) saveResult(result Result) {
-	if r.dryRun {
-		return
-	}
-
-	// Load current results to merge with
-	current := r.loadResults()
-	current[result.Name] = result
-
-	// Save merged results
-	data, err := json.MarshalIndent(current, "", "  ")
-	if err != nil {
-		fmt.Printf("Error marshaling results: %v\n", err)
-		return
-	}
-
-	if err := os.WriteFile(r.filename, data, 0644); err != nil {
-		fmt.Printf("Error writing results file: %v\n", err)
 	}
 }
 
