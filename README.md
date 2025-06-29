@@ -42,12 +42,12 @@ However, good practice is **25+ independent timings**; smaller n inflates the ac
 ```
 name              time/op     ops/s      allocs/op  vs prev            vs ref
 ----------------- ----------- ---------- ---------- ------------------ ------------------
-and 1.0K (seq)    920.0 ns    1.1M       4          ✅ +7% (CI: +2% to +12%)   ❌ -18% (CI: -25% to -11%)
-and 1.0K (rnd)    665.9 ns    1.5M       4          🟰 similar         ❌ -11% (CI: -18% to -4%)
-and 1.0K (sps)    1.3 µs      754.5K     19         🟰 similar         🟰 -2% (CI: -8% to +4%)
-and 1.0K (dns)    172.0 ns    5.8M       4          ❌ -7% (CI: -12% to -2%)   ❌ -18% (CI: -25% to -11%)
-and 10.0M (seq)   191.3 µs    5.2K       156        🟰 +5% (CI: -1% to +11%)   ✅ +45% (CI: +38% to +52%)
-and 10.0M (rnd)   274.1 µs    3.6K       176        ✅ +29% (CI: +22% to +36%)  ✅ +2% (CI: -5% to +9%)
+and 1.0K (seq)    920.0 ns    1.1M       4          ✅ +7% (p=0.000)   ❌ -18% (p=0.000)
+and 1.0K (rnd)    665.9 ns    1.5M       4          🟰 similar         ❌ -11% (p=0.000)
+and 1.0K (sps)    1.3 µs      754.5K     19         🟰 similar         🟰 -2% (p=0.004)
+and 1.0K (dns)    172.0 ns    5.8M       4          ❌ -7% (p=0.000)   ❌ -18% (p=0.000)
+and 10.0M (seq)   191.3 µs    5.2K       156        🟰 +5% (p=0.001)   ✅ +45% (p=0.000)
+and 10.0M (rnd)   274.1 µs    3.6K       176        ✅ +29% (p=0.000)  ✅ +2% (p=0.001)
 ```
 
 ## Quick Start
@@ -87,9 +87,9 @@ The benchmark runner can be customized with a set of option functions. The table
 | `WithFilter` | Runs only the benchmarks whose names start with the provided prefix. This is handy when your suite has many benchmarks and you only want to focus on a subset without changing your code. |
 | `WithSamples` | Sets how many samples should be collected for each benchmark. More samples give more stable statistics but also make the run take longer, so adjust the number depending on how precise you need the measurements to be. |
 | `WithDuration` | Controls how long each sample runs. Increase the duration when the code under test is very fast or when you want less variation between runs. |
-| `WithReference` | Enables the reference comparison column in the output. Provide a reference implementation when calling `b.Run`
-
-
+| `WithReference` | Enables the reference comparison column in the output. Provide a reference implementation when calling `b.Run` and Bench will show how your code performs against that reference, making regressions easy to spot. |
+| `WithDryRun` | Prevents the library from writing results to disk. This option is useful for quick experiments or CI jobs where you just want to see the formatted output without updating any files. |
+| `WithConfidence` | Sets the confidence level (in percent) for significance testing. Higher values make it harder for a difference to be considered statistically significant. |
 
 ## About
 
