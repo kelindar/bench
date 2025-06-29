@@ -73,7 +73,18 @@ func main() {
 }
 ```
 
+## Options
 
+The benchmark runner can be customized with a set of option functions. The table below explains what each option does and how you might use it.
+
+| Option | Description |
+|--------|-------------|
+| `bench.WithFile("results.json")` | Use this to pick the file where benchmark results are stored. When the filename ends with `.gob`, the data is written in a compact binary format; otherwise JSON is used. Saving results lets you track performance over time or share them between machines. |
+| `bench.WithFilter("prefix")` | Runs only the benchmarks whose names start with the provided prefix. This is handy when your suite has many benchmarks and you only want to focus on a subset without changing your code. |
+| `bench.WithSamples(10)` | Sets how many samples should be collected for each benchmark. More samples give more stable statistics but also make the run take longer, so adjust the number depending on how precise you need the measurements to be. |
+| `bench.WithDuration(500*time.Millisecond)` | Controls how long each sample runs. Increase the duration when the code under test is very fast or when you want less variation between runs. |
+| `bench.WithReference()` | Enables the reference comparison column in the output. Provide a reference implementation when calling `b.Run` and Bench will show how your code performs against that reference, making regressions easy to spot. |
+| `bench.WithDryRun()` | Prevents the library from writing results to disk. This option is useful for quick experiments or CI jobs where you just want to see the formatted output without updating any files. |
 
 ## About
 
