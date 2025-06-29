@@ -13,7 +13,7 @@
 A **lightweight, statistical benchmarking library** for Go, designed for robust, repeatable, and insightful performance analysis. Bench makes it easy to:
 
 - **Analyze performance** with Welch's t-test for statistical significance
-- **Persist results** incrementally in JSON for resilience and tracking
+ - **Persist results** incrementally in Gob format for resilience and tracking
 - **Compare runs** and reference implementations with p-values
 - **Format output** in clean, customizable tables
 - **Filter benchmarks** by name prefix for focused runs
