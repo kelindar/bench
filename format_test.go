@@ -22,3 +22,33 @@ func TestFormatHelpers(t *testing.T) {
 	assert.Contains(t, formatOps(2e3), "K")
 	assert.Equal(t, "2", formatOps(2))
 }
+
+func TestFormatChange(t *testing.T) {
+	// Large speedups should be formatted as multipliers
+	assert.Equal(t, "+3.5x", formatChange(250, [2]float64{}))
+	assert.Equal(t, "+13x", formatChange(1200, [2]float64{}))
+
+	// Percent formatting with interval
+	out := formatChange(10, [2]float64{5, 15})
+	assert.Equal(t, "+10% [5%,15%]", out)
+}
+
+func TestFormatComparisonCases(t *testing.T) {
+	b := &B{}
+
+	// Zero means
+	r := Report{}
+	assert.Equal(t, "🟰 similar", b.formatComparison(r))
+
+	// Variant extremely slower
+	r = Report{MeanControl: 1, MeanVariant: 2000, Significant: true}
+	assert.Equal(t, "❌ uncomparable", b.formatComparison(r))
+
+	// Variant extremely faster
+	r = Report{MeanControl: 1000, MeanVariant: 0.5, Significant: true}
+	assert.Equal(t, "✅ uncomparable", b.formatComparison(r))
+
+	// Typical improvement with confidence interval
+	r = Report{MeanControl: 100, MeanVariant: 50, Significant: true, CI: [2]float64{-60, -40}}
+	assert.Contains(t, b.formatComparison(r), "+100%")
+}
