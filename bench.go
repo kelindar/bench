@@ -15,11 +15,11 @@ import (
 
 const (
 	// Default sampling configuration
-	DefaultSamples    = 100
-	DefaultDuration   = 10 * time.Millisecond
-	DefaultTableFmt   = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
-	DefaultFilename   = "bench.gob"
-	DefaultConfidence = 99.9
+	defaultSamples    = 100
+	defaultDuration   = 10 * time.Millisecond
+	defaultTableFmt   = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
+	defaultFilename   = "bench.gob"
+	defaultConfidence = 99.9
 	boostramSamples   = 10000
 )
 
@@ -34,17 +34,17 @@ type Result struct {
 // B manages benchmarks and handles persistence
 type B struct {
 	config
-	t *testing.T
+	t testing.TB
 }
 
 // Run executes benchmarks with the given configuration
 func Run(fn func(*B), opts ...Option) {
 	cfg := config{
-		filename:   DefaultFilename,
-		samples:    DefaultSamples,
-		duration:   DefaultDuration,
-		tableFmt:   DefaultTableFmt,
-		confidence: DefaultConfidence,
+		filename:   defaultFilename,
+		samples:    defaultSamples,
+		duration:   defaultDuration,
+		tableFmt:   defaultTableFmt,
+		confidence: defaultConfidence,
 		codec:      gobCodec{},
 	}
 
@@ -166,7 +166,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 		report = bca(prevResult.Samples, ourSamples, r.confidence/100.0, boostramSamples)
 		vsPrev = r.formatComparison(report)
 		if r.t != nil && report.Significant && report.Delta > 0 {
-			r.t.Errorf("%s performance regressed: %s", name, vsPrev)
+			r.t.Errorf("%s has a performance regression of %s", name, vsPrev)
 		}
 	}
 
@@ -179,24 +179,43 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	}
 
 	// Format and display result
-	if r.showRef {
-		fmt.Printf(r.tableFmt,
-			name,
-			formatTime(nsPerOp),
-			formatOps(opsPerSec),
-			formatAllocs(avgAllocsPerOp),
-			vsPrev,
-			vsRef)
-	} else {
-		fmt.Printf(r.tableFmt,
-			name,
-			formatTime(nsPerOp),
-			formatOps(opsPerSec),
-			formatAllocs(avgAllocsPerOp),
-			vsPrev, "")
-	}
+	fmt.Printf(r.tableFmt, name,
+		formatTime(nsPerOp),
+		formatOps(opsPerSec),
+		formatAllocs(avgAllocsPerOp),
+		vsPrev,
+		vsRef)
 
 	// Save result incrementally
 	r.saveResult(result)
 	return
+}
+
+// Assert runs benchmarks in dry-run mode and fails the test if performance regresses.
+// It is skipped when testing is run with -short.
+func Assert(t testing.TB, fn func(*B), opts ...Option) {
+	t.Helper()
+
+	if testing.Short() {
+		t.Skip("skipping benchmark assertion in short mode")
+	}
+
+	cfg := config{
+		filename:   defaultFilename,
+		samples:    defaultSamples,
+		duration:   defaultDuration,
+		tableFmt:   defaultTableFmt,
+		confidence: defaultConfidence,
+		codec:      gobCodec{},
+		dryRun:     true,
+	}
+
+	initFlags(&cfg)
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	runner := &B{config: cfg, t: t}
+	runner.printHeader()
+	fn(runner)
 }

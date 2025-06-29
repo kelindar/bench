@@ -41,14 +41,14 @@ func TestFormatComparisonCases(t *testing.T) {
 	assert.Equal(t, "🟰 similar", b.formatComparison(r))
 
 	// Variant extremely slower
-	r = Report{MeanControl: 1, MeanVariant: 2000, Significant: true}
+	r = Report{MedianControl: 1, MedianVariant: 2000, Significant: true}
 	assert.Equal(t, "❌ uncomparable", b.formatComparison(r))
 
 	// Variant extremely faster
-	r = Report{MeanControl: 1000, MeanVariant: 0.5, Significant: true}
+	r = Report{MedianControl: 1000, MedianVariant: 0.5, Significant: true}
 	assert.Equal(t, "✅ uncomparable", b.formatComparison(r))
 
 	// Typical improvement with confidence interval
-	r = Report{MeanControl: 100, MeanVariant: 50, Significant: true, CI: [2]float64{-60, -40}}
+	r = Report{MedianControl: 100, MedianVariant: 50, Significant: true, CI: [2]float64{-60, -40}}
 	assert.Contains(t, b.formatComparison(r), "+100%")
 }

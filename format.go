@@ -10,25 +10,25 @@ import (
 // formatComparison formats statistical comparison between two sample sets using BCa bootstrap
 func (r *B) formatComparison(report Report) string {
 	switch {
-	case report.MeanControl == 0 || report.MeanVariant == 0:
+	case report.MedianControl == 0 || report.MedianVariant == 0:
 		return "🟰 similar" // A infinite or invalid ratios
-	case report.Significant && report.MeanVariant > 1000*report.MeanControl:
+	case report.Significant && report.MedianVariant > 1000*report.MedianControl:
 		return "❌ uncomparable"
-	case report.Significant && report.MeanVariant < 0.001*report.MeanControl:
+	case report.Significant && report.MedianVariant < 0.001*report.MedianControl:
 		return "✅ uncomparable"
 	}
 
-	speedup := report.MeanControl / report.MeanVariant
+	speedup := report.MedianControl / report.MedianVariant
 	change := (speedup - 1) * 100
 
 	// Convert delta confidence interval to percentage bounds correctly
 	var interval [2]float64
-	if report.MeanControl != 0 {
-		if (report.MeanControl - report.CI[0]) != 0 {
-			interval[0] = (report.MeanControl/(report.MeanControl-report.CI[0]) - 1) * 100
+	if report.MedianControl != 0 {
+		if (report.MedianControl - report.CI[0]) != 0 {
+			interval[0] = (report.MedianControl/(report.MedianControl-report.CI[0]) - 1) * 100
 		}
-		if (report.MeanControl - report.CI[1]) != 0 {
-			interval[1] = (report.MeanControl/(report.MeanControl-report.CI[1]) - 1) * 100
+		if (report.MedianControl - report.CI[1]) != 0 {
+			interval[1] = (report.MedianControl/(report.MedianControl-report.CI[1]) - 1) * 100
 		}
 
 		// Ensure interval is ordered correctly (lower <= upper)

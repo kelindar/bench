@@ -8,37 +8,35 @@ import (
 	"math/rand/v2"
 	"sort"
 
-	"gonum.org/v1/gonum/stat"
 	"gonum.org/v1/gonum/stat/distuv"
 )
 
 // Report represents the result of BCa Report inference
 type Report struct {
-	Delta       float64    // Delta is the difference between the means (new - old)
-	CI          [2]float64 // Interval is the confidence interval
-	MeanControl float64    // MeanControl is the mean of the control group
-	MeanVariant float64    // MeanVariant is the mean of the variant group
-	Confidence  float64    // Confidence is the confidence level (e.g., 0.95 for 95%)
-	Significant bool       // Significant indicates if the confidence interval excludes zero
-	Samples     int        // Samples is the number of bootstrap samples used
+	Delta         float64    // Delta is the difference between the medians (new - old)
+	CI            [2]float64 // Interval is the confidence interval
+	MedianControl float64    // MedianControl is the median of the control group
+	MedianVariant float64    // MedianVariant is the median of the variant group
+	Confidence    float64    // Confidence is the confidence level (e.g., 0.95 for 95%)
+	Significant   bool       // Significant indicates if the confidence interval excludes zero
+	Samples       int        // Samples is the number of bootstrap samples used
 }
 
 // bca performs BCa (Bias-Corrected accelerated) bootstrap inference
-// comparing two samples. Returns confidence interval for the difference in means.
+// comparing two samples. Returns confidence interval for the difference in medians.
 func bca(control, experiment []float64, confidence float64, bootstrapSamples int) Report {
 	if len(control) == 0 || len(experiment) == 0 {
 		return Report{}
 	}
-
 	// Use more stable seeding based on sample statistics rather than raw values
 	// This reduces sensitivity to measurement noise
-	meanControl := stat.Mean(control, nil)
-	meanVariant := stat.Mean(experiment, nil)
-	seed := uint64(math.Float64bits(meanControl) ^ math.Float64bits(meanVariant))
+	medianControl := median(control)
+	medianVariant := median(experiment)
+	seed := uint64(math.Float64bits(medianControl) ^ math.Float64bits(medianVariant))
 	rng := rand.New(rand.NewPCG(seed, seed+1))
 
-	// Original statistic (difference in means)
-	originalDelta := meanVariant - meanControl
+	// Original statistic (difference in medians)
+	originalDelta := medianVariant - medianControl
 
 	// Step 1: Bootstrap resampling
 	bootstrapDeltas := make([]float64, bootstrapSamples)
@@ -49,9 +47,9 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 		variantBootstrap := resampleWithReplacement(experiment, rng)
 
 		// Compute statistic for this bootstrap sample
-		controlBootMean := stat.Mean(controlBootstrap, nil)
-		variantBootMean := stat.Mean(variantBootstrap, nil)
-		bootstrapDeltas[i] = variantBootMean - controlBootMean
+		controlBootMedian := median(controlBootstrap)
+		variantBootMedian := median(variantBootstrap)
+		bootstrapDeltas[i] = variantBootMedian - controlBootMedian
 	}
 
 	// Step 2: Compute bias-correction parameter (z₀)
@@ -65,28 +63,28 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 	lowerCI, upperCI := computeBCaCI(bootstrapDeltas, biasCorrection, acceleration, alpha)
 
 	// Step 5: More conservative significance detection
-	significant := isSignificant(lowerCI, upperCI, originalDelta, meanControl, meanVariant)
+	significant := isSignificant(lowerCI, upperCI, originalDelta, medianControl, medianVariant)
 
 	return Report{
-		Delta:       originalDelta,
-		CI:          [2]float64{lowerCI, upperCI},
-		MeanControl: meanControl,
-		MeanVariant: meanVariant,
-		Confidence:  confidence,
-		Significant: significant,
-		Samples:     bootstrapSamples,
+		Delta:         originalDelta,
+		CI:            [2]float64{lowerCI, upperCI},
+		MedianControl: medianControl,
+		MedianVariant: medianVariant,
+		Confidence:    confidence,
+		Significant:   significant,
+		Samples:       bootstrapSamples,
 	}
 }
 
 // isSignificant uses more conservative thresholds to reduce false positives
-func isSignificant(lowerCI, upperCI, delta, controlMean, experimentMean float64) bool {
-	if controlMean == 0 || experimentMean == 0 {
+func isSignificant(lowerCI, upperCI, delta, controlMedian, experimentMedian float64) bool {
+	if controlMedian == 0 || experimentMedian == 0 {
 		return false // Don't claim significance for edge cases
 	}
 
-	// CI must clearly exclude 0 with larger tolerance.  Use 5% of the control
-	// mean as minimum detectable difference
-	mde := math.Abs(controlMean * 0.05)
+	// CI must clearly exclude 0 with larger tolerance. Use 5% of the control
+	// median as minimum detectable difference
+	mde := math.Abs(controlMedian * 0.05)
 	tolerance := math.Max(mde, math.Abs(delta)*0.1)
 	statsig := lowerCI > tolerance || upperCI < -tolerance
 	return statsig
@@ -102,6 +100,23 @@ func resampleWithReplacement(data []float64, rng *rand.Rand) []float64 {
 	}
 
 	return resampled
+}
+
+// median calculates the median of a slice of float64.
+func median(data []float64) float64 {
+	if len(data) == 0 {
+		return 0
+	}
+
+	n := len(data)
+	sort.Float64s(data)
+	if n%2 == 1 {
+		return data[n/2]
+	}
+
+	mid1 := data[n/2-1]
+	mid2 := data[n/2]
+	return (mid1 + mid2) / 2.0
 }
 
 // computeBiasCorrection computes the bias-correction parameter z₀
@@ -143,7 +158,7 @@ func computeAcceleration(control, experiment []float64) float64 {
 				jackSample = append(jackSample, control[j])
 			}
 		}
-		controlJack[i] = stat.Mean(jackSample, nil)
+		controlJack[i] = median(jackSample)
 	}
 
 	// Jackknife estimates for experiment group
@@ -156,25 +171,25 @@ func computeAcceleration(control, experiment []float64) float64 {
 				jackSample = append(jackSample, experiment[j])
 			}
 		}
-		experimentJack[i] = stat.Mean(jackSample, nil)
+		experimentJack[i] = median(jackSample)
 	}
 
 	// Compute jackknife differences
 	jackDiffs := make([]float64, n1+n2)
 	for i := 0; i < n1; i++ {
-		jackDiffs[i] = stat.Mean(experiment, nil) - controlJack[i]
+		jackDiffs[i] = median(experiment) - controlJack[i]
 	}
 	for i := 0; i < n2; i++ {
-		jackDiffs[n1+i] = experimentJack[i] - stat.Mean(control, nil)
+		jackDiffs[n1+i] = experimentJack[i] - median(control)
 	}
 
 	// Compute acceleration parameter
-	jackMean := stat.Mean(jackDiffs, nil)
+	jackMedian := median(jackDiffs)
 
 	sumCubed := 0.0
 	sumSquared := 0.0
 	for _, diff := range jackDiffs {
-		dev := jackMean - diff
+		dev := jackMedian - diff
 		sumCubed += dev * dev * dev
 		sumSquared += dev * dev
 	}
