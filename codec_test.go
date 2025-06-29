@@ -28,3 +28,23 @@ func TestGobCodec(t *testing.T) {
 		t.Fatalf("expected timestamp 321")
 	}
 }
+
+func TestJSONCodecLoadError(t *testing.T) {
+	file := "bad.json"
+	os.WriteFile(file, []byte("bad"), 0644)
+	defer os.Remove(file)
+	res := jsonCodec{}.load(file)
+	if len(res) != 0 {
+		t.Fatalf("expected empty result")
+	}
+}
+
+func TestGobCodecLoadError(t *testing.T) {
+	file := "bad.gob"
+	os.WriteFile(file, []byte("bad"), 0644)
+	defer os.Remove(file)
+	res := gobCodec{}.load(file)
+	if len(res) != 0 {
+		t.Fatalf("expected empty result")
+	}
+}
