@@ -1,3 +1,6 @@
+// Copyright (c) Roman Atachiants and contributors. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root
+
 package bench
 
 import (
@@ -168,17 +171,17 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 	if r.showRef {
 		fmt.Printf(r.tableFmt,
 			name,
-			r.formatTime(nsPerOp),
-			r.formatOps(opsPerSec),
-			r.formatAllocs(avgAllocsPerOp),
+			formatTime(nsPerOp),
+			formatOps(opsPerSec),
+			formatAllocs(avgAllocsPerOp),
 			delta,
 			vsRef)
 	} else {
 		fmt.Printf("%-20s %-12s %-12s %-12s %-18s\n",
 			name,
-			r.formatTime(nsPerOp),
-			r.formatOps(opsPerSec),
-			r.formatAllocs(avgAllocsPerOp),
+			formatTime(nsPerOp),
+			formatOps(opsPerSec),
+			formatAllocs(avgAllocsPerOp),
 			delta)
 	}
 

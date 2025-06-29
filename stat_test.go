@@ -1,6 +1,6 @@
-// Copyright 2021 The tinystat Authors
-// Copyright 2025 Roman Atachiants
-// This is a fork of https://github.com/codahale/tinystat
+// Copyright (c) Roman Atachiants and contributors. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root
+
 package bench
 
 import (
@@ -9,58 +9,62 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSummarizeOdd(t *testing.T) {
+func TestBCaBootstrapBasic(t *testing.T) {
 	t.Parallel()
 
-	s := Summarize([]float64{1, 2, 3})
+	// Test with clearly different data sets
+	control := []float64{10.0, 12.0, 11.0, 13.0, 9.0, 11.5, 10.5, 12.5}
+	experiment := []float64{8.0, 9.0, 7.5, 8.5, 7.0, 8.0, 9.5, 8.2}
 
-	assert.Equal(t, float64(3), s.N, "N")
-	assert.InDelta(t, 2, s.Mean, 0.001, "Mean")
-	assert.InDelta(t, 1, s.Variance, 0.001, "Variance")
-	assert.InDelta(t, 1.0, s.StdDev(), 0.001, "StdDev")
-	assert.InDelta(t, 0.5773502691896258, s.StdErr(), 0.001, "StdErr")
+	result := BCaBootstrap(control, experiment, 0.95, 1000)
+
+	// Basic validation
+	assert.True(t, result.Delta < 0, "Expected negative delta (experiment faster)")
+	assert.True(t, result.LowerCI < result.UpperCI, "Lower CI should be less than upper CI")
+	assert.Equal(t, 0.95, result.Confidence, "Confidence level should match")
+	assert.Equal(t, 1000, result.Samples, "Bootstrap samples should match")
+	assert.True(t, result.Significant, "Should be significant with clear difference")
 }
 
-func TestSummarizeEven(t *testing.T) {
+func TestBCaBootstrapIdentical(t *testing.T) {
 	t.Parallel()
 
-	s := Summarize([]float64{1, 2, 3, 4})
+	// Test with identical data (should not be significant)
+	identical := []float64{10.0, 10.0, 10.0, 10.0, 10.0}
+	result := BCaBootstrap(identical, identical, 0.95, 1000)
 
-	assert.Equal(t, float64(4), s.N, "N")
-	assert.InDelta(t, 2.5, s.Mean, 0.001, "Mean")
-	assert.InDelta(t, 1.6666666666666667, s.Variance, 0.001, "Variance")
-	assert.InDelta(t, 1.2909944487358056, s.StdDev(), 0.001, "StdDev")
-	assert.InDelta(t, 0.6454972243679028, s.StdErr(), 0.001, "StdErr")
+	assert.False(t, result.Significant, "Identical data should not be significant")
+	assert.InDelta(t, 0.0, result.Delta, 0.001, "Delta should be near zero for identical data")
+	assert.True(t, result.LowerCI <= 0.0, "Lower CI should be <= 0")
+	assert.True(t, result.UpperCI >= 0.0, "Upper CI should be >= 0")
 }
 
-func TestCompareSimilarData(t *testing.T) {
+func TestBCaBootstrapSmallDifference(t *testing.T) {
 	t.Parallel()
 
-	a := Summarize([]float64{1, 2, 3, 4})
-	b := Summarize([]float64{1, 2, 3, 4})
-	d := Compare(a, b, 80)
+	// Test with small difference that might not be significant
+	control := []float64{10.0, 10.1, 9.9, 10.0, 10.1}
+	experiment := []float64{10.05, 10.15, 9.95, 10.05, 10.15}
 
-	assert.InDelta(t, 0, d.Effect, 0.001, "Effect")
-	assert.InDelta(t, 0, d.EffectSize, 0.001, "EffectSize")
-	assert.InDelta(t, 1.314, d.CriticalValue, 0.001, "CriticalValue")
-	assert.InDelta(t, 1, d.PValue, 0.001, "PValue")
-	assert.InDelta(t, 0.2, d.Alpha, 0.001, "Alpha")
-	assert.InDelta(t, 0, d.Beta, 0.001, "Beta")
-	assert.False(t, d.Significant(), "Significant")
+	result := BCaBootstrap(control, experiment, 0.95, 1000)
+
+	// Should have reasonable CI bounds
+	assert.True(t, result.LowerCI < result.UpperCI, "Lower CI should be less than upper CI")
+	assert.InDelta(t, 0.05, result.Delta, 0.1, "Delta should be around 0.05")
 }
 
-func TestCompareDifferentData(t *testing.T) {
+func TestBCaBootstrapEdgeCases(t *testing.T) {
 	t.Parallel()
 
-	a := Summarize([]float64{1, 2, 3, 4})
-	b := Summarize([]float64{10, 20, 30, 40})
-	d := Compare(a, b, 80)
+	// Test with empty slices
+	result := BCaBootstrap([]float64{}, []float64{1.0}, 0.95, 100)
+	assert.Equal(t, boostrap{}, result, "Should return empty result for empty control")
 
-	assert.InDelta(t, 22.5, d.Effect, 0.001, "Effect")
-	assert.InDelta(t, 2.452519415855564, d.EffectSize, 0.001, "EffectSize")
-	assert.InDelta(t, 10.568, d.CriticalValue, 0.001, "CriticalValue")
-	assert.InDelta(t, 0.03916791618893338, d.PValue, 0.001, "PValue")
-	assert.InDelta(t, 0.2, d.Alpha, 0.001, "Alpha")
-	assert.InDelta(t, 0.9856216842773273, d.Beta, 0.001, "Beta")
-	assert.True(t, d.Significant(), "Significant")
+	result = BCaBootstrap([]float64{1.0}, []float64{}, 0.95, 100)
+	assert.Equal(t, boostrap{}, result, "Should return empty result for empty experiment")
+
+	// Test with single values
+	result = BCaBootstrap([]float64{5.0}, []float64{10.0}, 0.95, 100)
+	assert.Equal(t, 5.0, result.Delta, "Delta should be 5.0")
+	assert.Equal(t, 0.95, result.Confidence, "Confidence should match")
 }
