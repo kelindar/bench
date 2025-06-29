@@ -111,3 +111,25 @@ func TestRunWithBCaBootstrap(t *testing.T) {
 	_, err := os.Stat(file)
 	assert.NoError(t, err, "results file should be created")
 }
+
+func TestAssert(t *testing.T) {
+	file := "test_assert.json"
+	defer os.Remove(file)
+
+	// baseline run to create previous results
+	Run(func(b *B) {
+		b.Run("bench", func(i int) { time.Sleep(time.Millisecond) })
+	}, WithFile(file), WithSamples(5), WithDuration(time.Millisecond))
+
+	before, err := os.Stat(file)
+	assert.NoError(t, err)
+
+	// Assert should pass with identical performance and not modify file
+	Assert(t, func(b *B) {
+		b.Run("bench", func(i int) { time.Sleep(time.Millisecond) })
+	}, WithFile(file), WithSamples(5), WithDuration(time.Millisecond))
+
+	after, err := os.Stat(file)
+	assert.NoError(t, err)
+	assert.Equal(t, before.ModTime(), after.ModTime(), "file should not be modified")
+}

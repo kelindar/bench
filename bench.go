@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"testing"
 	"time"
 
 	"gonum.org/v1/gonum/stat"
@@ -33,6 +34,7 @@ type Result struct {
 // B manages benchmarks and handles persistence
 type B struct {
 	config
+	t *testing.T
 }
 
 // Run executes benchmarks with the given configuration
@@ -163,6 +165,9 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	if exists {
 		report = bca(prevResult.Samples, ourSamples, r.confidence/100.0, boostramSamples)
 		vsPrev = r.formatComparison(report)
+		if r.t != nil && report.Significant && report.Delta > 0 {
+			r.t.Errorf("%s performance regressed: %s", name, vsPrev)
+		}
 	}
 
 	// Calculate vs reference if provided
