@@ -83,7 +83,7 @@ func WithConfidence(level float64) Option {
 func initFlags(c *config) {
 	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
 	prefix := fs.String("bench", "", "Run only benchmarks with this prefix")
-	dry := fs.Bool("n", false, "dry run - do not update bench.json")
+	dry := fs.Bool("n", false, "dry run - do not update bench.gob")
 
 	// Parse only the flags we care about from os.Args
 	args := []string{}

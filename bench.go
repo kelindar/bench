@@ -14,7 +14,7 @@ const (
 	DefaultSamples    = 100
 	DefaultDuration   = 10 * time.Millisecond
 	DefaultTableFmt   = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
-	DefaultFilename   = "bench.json"
+	DefaultFilename   = "bench.gob"
 	DefaultConfidence = 99.9
 )
 
@@ -39,7 +39,7 @@ func Run(fn func(*B), opts ...Option) {
 		duration:   DefaultDuration,
 		tableFmt:   DefaultTableFmt,
 		confidence: DefaultConfidence,
-		codec:      jsonCodec{},
+		codec:      gobCodec{},
 	}
 
 	// Apply flags first so user options can override
