@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codahale/tinystat"
+	"gonum.org/v1/gonum/stat"
 )
 
 const (
@@ -136,7 +136,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 
 	// Benchmark our implementation
 	ourSamples, ourAllocs := r.benchmark(ourFn)
-	nsPerOp := tinystat.Summarize(ourSamples).Mean
+	nsPerOp := stat.Mean(ourSamples, nil)
 	opsPerSec := 1e9 / nsPerOp
 
 	// Calculate average allocations per operation

@@ -12,22 +12,26 @@ import (
 	"gonum.org/v1/gonum/stat/distuv"
 )
 
-// boostrap represents the result of BCa bootstrap inference
-type boostrap struct {
+// bootstrap represents the result of BCa bootstrap inference
+type bootstrap struct {
 	Delta       float64 // Delta is the difference between the means (new - old)
 	LowerCI     float64 // LowerCI is the lower bound of the confidence interval
 	UpperCI     float64 // UpperCI is the upper bound of the confidence interval
 	Confidence  float64 // Confidence is the confidence level (e.g., 0.95 for 95%)
 	Significant bool    // Significant indicates if the confidence interval excludes zero
-	Samples     int     // BootstrapSamples is the number of bootstrap samples used
+	Samples     int     // Samples is the number of bootstrap samples used
 }
 
 // BCaBootstrap performs BCa (Bias-Corrected accelerated) bootstrap inference
 // comparing two samples. Returns confidence interval for the difference in means.
-func BCaBootstrap(control, experiment []float64, confidence float64, bootstrapSamples int) boostrap {
+func BCaBootstrap(control, experiment []float64, confidence float64, bootstrapSamples int) bootstrap {
 	if len(control) == 0 || len(experiment) == 0 {
-		return boostrap{}
+		return bootstrap{}
 	}
+
+	// Use deterministic seeding based on data for reproducible results within session
+	seed1, seed2 := hashSamples(control, experiment)
+	rng := rand.New(rand.NewPCG(seed1, seed2))
 
 	// Original statistic (difference in means)
 	controlMean := stat.Mean(control, nil)
@@ -37,10 +41,9 @@ func BCaBootstrap(control, experiment []float64, confidence float64, bootstrapSa
 	// Step 1: Bootstrap resampling
 	bootstrapDeltas := make([]float64, bootstrapSamples)
 	for i := 0; i < bootstrapSamples; i++ {
-
-		// Resample with replacement
-		controlBootstrap := resampleWithReplacement(control)
-		experimentBootstrap := resampleWithReplacement(experiment)
+		// Resample with replacement using our seeded RNG
+		controlBootstrap := resampleWithReplacement(control, rng)
+		experimentBootstrap := resampleWithReplacement(experiment, rng)
 
 		// Compute statistic for this bootstrap sample
 		controlBootMean := stat.Mean(controlBootstrap, nil)
@@ -58,10 +61,10 @@ func BCaBootstrap(control, experiment []float64, confidence float64, bootstrapSa
 	alpha := 1.0 - confidence
 	lowerCI, upperCI := computeBCaCI(bootstrapDeltas, biasCorrection, acceleration, alpha)
 
-	// Step 5: Determine significance (CI excludes 0)
-	significant := lowerCI > 0 || upperCI < 0
+	// Step 5: Determine significance with tolerance for jittering
+	significant := isSignificant(lowerCI, upperCI, originalDelta, controlMean, experimentMean)
 
-	return boostrap{
+	return bootstrap{
 		Delta:       originalDelta,
 		LowerCI:     lowerCI,
 		UpperCI:     upperCI,
@@ -71,16 +74,50 @@ func BCaBootstrap(control, experiment []float64, confidence float64, bootstrapSa
 	}
 }
 
-// resampleWithReplacement performs bootstrap resampling with replacement
-func resampleWithReplacement(data []float64) []float64 {
+// hashSamples creates a deterministic seed from sample data
+func hashSamples(control, experiment []float64) (uint64, uint64) {
+	var hash1, hash2 uint64 = 0x9e3779b9, 0x85ebca6b
+
+	for _, v := range control {
+		bits := math.Float64bits(v)
+		hash1 ^= bits + 0x9e3779b9 + (hash1 << 6) + (hash1 >> 2)
+	}
+
+	for _, v := range experiment {
+		bits := math.Float64bits(v)
+		hash2 ^= bits + 0x85ebca6b + (hash2 << 6) + (hash2 >> 2)
+	}
+
+	return hash1, hash2
+}
+
+// isSignificant determines significance with tolerance to prevent jittering
+func isSignificant(lowerCI, upperCI, delta, controlMean, experimentMean float64) bool {
+	// If either mean is zero, use absolute difference threshold
+	if controlMean == 0 || experimentMean == 0 {
+		return math.Abs(delta) > 0.1 && (lowerCI > 0 || upperCI < 0)
+	}
+
+	// Calculate percentage effect size
+	percentEffect := math.Abs(delta / controlMean * 100)
+
+	// Practical significance threshold: effect must be > 1% and CI must exclude 0
+	practicallySignificant := percentEffect > 1.0
+
+	// Statistical significance: CI must clearly exclude 0 (with tolerance)
+	tolerance := math.Max(0.01, math.Abs(delta)*0.01)
+	statistically := lowerCI > tolerance || upperCI < -tolerance
+
+	// Both conditions must be met
+	return practicallySignificant && statistically
+}
+
+// resampleWithReplacement performs bootstrap resampling with replacement using provided RNG
+func resampleWithReplacement(data []float64, rng *rand.Rand) []float64 {
 	n := len(data)
 	resampled := make([]float64, n)
 	for i := 0; i < n; i++ {
-		idx := int(math.Floor(rand.Float64() * float64(n)))
-		if idx >= n {
-			idx = n - 1
-		}
-
+		idx := rng.IntN(n)
 		resampled[i] = data[idx]
 	}
 	return resampled
@@ -131,7 +168,6 @@ func computeAcceleration(control, experiment []float64) float64 {
 	// Jackknife estimates for experiment group
 	experimentJack := make([]float64, n2)
 	for i := 0; i < n2; i++ {
-
 		// Create jackknife sample (all except i-th element)
 		jackSample := make([]float64, 0, n2-1)
 		for j := 0; j < n2; j++ {

@@ -58,13 +58,41 @@ func TestBCaBootstrapEdgeCases(t *testing.T) {
 
 	// Test with empty slices
 	result := BCaBootstrap([]float64{}, []float64{1.0}, 0.95, 100)
-	assert.Equal(t, boostrap{}, result, "Should return empty result for empty control")
+	assert.Equal(t, bootstrap{}, result, "Should return empty result for empty control")
 
 	result = BCaBootstrap([]float64{1.0}, []float64{}, 0.95, 100)
-	assert.Equal(t, boostrap{}, result, "Should return empty result for empty experiment")
+	assert.Equal(t, bootstrap{}, result, "Should return empty result for empty experiment")
 
 	// Test with single values
 	result = BCaBootstrap([]float64{5.0}, []float64{10.0}, 0.95, 100)
 	assert.Equal(t, 5.0, result.Delta, "Delta should be 5.0")
 	assert.Equal(t, 0.95, result.Confidence, "Confidence should match")
+}
+
+func TestBCaBootstrapConsistency(t *testing.T) {
+	t.Parallel()
+
+	// Test that identical data gives consistent results
+	data := []float64{10.0, 10.1, 9.9, 10.0, 10.05}
+
+	// Run multiple times - should be consistent due to deterministic seeding
+	result1 := BCaBootstrap(data, data, 0.95, 1000)
+	result2 := BCaBootstrap(data, data, 0.95, 1000)
+
+	assert.Equal(t, result1.Delta, result2.Delta, "Should get identical deltas")
+	assert.Equal(t, result1.Significant, result2.Significant, "Should get identical significance")
+	assert.False(t, result1.Significant, "Identical data should not be significant")
+}
+
+func TestBCaBootstrapPracticalSignificance(t *testing.T) {
+	t.Parallel()
+
+	// Test that tiny differences are not considered practically significant
+	control := []float64{100.0, 100.1, 99.9, 100.0}
+	experiment := []float64{100.05, 100.15, 99.95, 100.05} // 0.05% difference
+
+	result := BCaBootstrap(control, experiment, 0.95, 1000)
+
+	// Should not be significant due to practical significance threshold
+	assert.False(t, result.Significant, "Tiny differences should not be practically significant")
 }

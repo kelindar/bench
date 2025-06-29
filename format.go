@@ -5,7 +5,6 @@ package bench
 
 import (
 	"fmt"
-	"math"
 )
 
 // formatComparison formats statistical comparison between two sample sets using BCa bootstrap
@@ -26,41 +25,34 @@ func (r *B) formatComparison(ourSamples, otherSamples []float64) string {
 	}
 	otherMean /= float64(len(otherSamples))
 
-	if otherMean == 0 {
-		if ourMean > 0 {
-			return "✅ +inf%"
-		}
-		return "🟰 similar"
-	}
-
 	// Perform BCa bootstrap with 10,000 samples
 	bootstrapResult := BCaBootstrap(otherSamples, ourSamples, r.confidence/100.0, 10000)
 
 	speedup := otherMean / ourMean
 	change := (speedup - 1) * 100
 
-	// For non-significant changes close to zero, show "similar"
-	if !bootstrapResult.Significant && change >= -2 && change <= 2 {
-		return "🟰 similar"
-	}
-
-	// Format confidence interval bounds for display
-	interval := [2]float64{
-		(otherMean/(otherMean-bootstrapResult.LowerCI) - 1) * 100,
-		(otherMean/(otherMean-bootstrapResult.UpperCI) - 1) * 100,
+	// Convert delta confidence interval to percentage bounds
+	// If delta CI is [lowerCI, upperCI] in absolute units (ns),
+	// then percentage CI is approximately:
+	// [lowerCI/otherMean * 100, upperCI/otherMean * 100]
+	var interval [2]float64
+	if otherMean != 0 {
+		interval[0] = bootstrapResult.LowerCI / otherMean * 100
+		interval[1] = bootstrapResult.UpperCI / otherMean * 100
 	}
 
 	switch {
 	case !bootstrapResult.Significant:
-		return fmt.Sprintf("🟰 %s %s", formatChange(change), formatCI(interval))
+		return "🟰 similar"
 	case speedup > 1:
-		return fmt.Sprintf("✅ %s %s", formatChange(change), formatCI(interval))
+		return fmt.Sprintf("✅ %s", formatChange(change, interval))
 	default:
-		return fmt.Sprintf("❌ %s %s", formatChange(change), formatCI(interval))
+		return fmt.Sprintf("❌ %s", formatChange(change, interval))
 	}
 }
 
-func formatChange(changePercent float64) string {
+// formatChange formats the change in performance
+func formatChange(changePercent float64, interval [2]float64) string {
 	var sign string
 	if changePercent > 0 {
 		sign = "+"
@@ -72,15 +64,11 @@ func formatChange(changePercent float64) string {
 	case changePercent > 100:
 		return fmt.Sprintf("%.1fx", changePercent)
 	default:
-		return fmt.Sprintf("%s%.0f%%", sign, changePercent)
+		return fmt.Sprintf("%s%.0f%% %s", sign, changePercent, formatCI(interval))
 	}
 }
 
 func formatCI(interval [2]float64) string {
-	if math.Abs(interval[0]-interval[1]) <= 2 {
-		return ""
-	}
-
 	return fmt.Sprintf("[%.0f%%,%.0f%%]", interval[0], interval[1])
 }
 
