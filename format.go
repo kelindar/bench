@@ -13,8 +13,10 @@ func (r *B) formatComparison(report Report) string {
 	switch {
 	case report.MeanControl == 0 || report.MeanVariant == 0:
 		return "🟰 similar" // A infinite or invalid ratios
-	case report.MeanVariant > 1000*report.MeanControl || report.MeanVariant < 0.001*report.MeanControl:
-		return "🟰 similar" // Avoid reporting massive differences
+	case report.Significant && report.MeanVariant > 1000*report.MeanControl:
+		return "❌ uncomparable"
+	case report.Significant && report.MeanVariant < 0.001*report.MeanControl:
+		return "✅ uncomparable"
 	}
 
 	speedup := report.MeanControl / report.MeanVariant

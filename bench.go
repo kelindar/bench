@@ -180,12 +180,12 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 			delta,
 			vsRef)
 	} else {
-		fmt.Printf("%-20s %-12s %-12s %-12s %-18s\n",
+		fmt.Printf(r.tableFmt,
 			name,
 			formatTime(nsPerOp),
 			formatOps(opsPerSec),
 			formatAllocs(avgAllocsPerOp),
-			delta)
+			delta, "")
 	}
 
 	// Save result incrementally

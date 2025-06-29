@@ -81,22 +81,15 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 // isSignificant uses more conservative thresholds to reduce false positives
 func isSignificant(lowerCI, upperCI, delta, controlMean, experimentMean float64) bool {
 	if controlMean == 0 || experimentMean == 0 {
-		return false // Conservative: don't claim significance for edge cases
+		return false // Don't claim significance for edge cases
 	}
 
-	// CI must clearly exclude 0 with larger tolerance
-	// Use 5% of the control mean as minimum detectable difference
+	// CI must clearly exclude 0 with larger tolerance.  Use 5% of the control
+	// mean as minimum detectable difference
 	mde := math.Abs(controlMean * 0.05)
 	tolerance := math.Max(mde, math.Abs(delta)*0.1)
 	statsig := lowerCI > tolerance || upperCI < -tolerance
-
-	// Additionally, require that the CI doesn't span more than 50% range
-	// This filters out very wide, uncertain intervals
-	ciWidth := math.Abs(upperCI - lowerCI)
-	ciRelative := ciWidth / math.Abs(controlMean) * 100
-	isNarrow := ciRelative < 50.0
-
-	return statsig && isNarrow
+	return statsig
 }
 
 // resampleWithReplacement performs bootstrap resampling with replacement using provided RNG
