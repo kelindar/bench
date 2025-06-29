@@ -57,14 +57,14 @@ import "github.com/kelindar/bench"
 func main() {
     bench.Run(func(b *bench.B) {
         // Simple benchmark
-        b.Run("benchmark name", func() {
+        b.Run("benchmark name", func(b *bench.B, op int) {
             // code to benchmark
         })
 
         // Benchmark with reference comparison
         b.Run("benchmark vs ref",
-            func() { /* our implementation */ },
-            func() { /* reference implementation */ })
+            func(b *bench.B, op int) { /* our implementation */ },
+            func(b *bench.B, op int) { /* reference implementation */ })
     },
     bench.WithFile("results.json"),   // optional: set results file
     bench.WithFilter("set"),          // optional: only run benchmarks starting with "set"
