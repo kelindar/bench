@@ -10,19 +10,23 @@
 
 ## Bench: Statistical Benchmarking for Go
 
-A **lightweight, statistical benchmarking library** for Go, designed for robust, repeatable, and insightful performance analysis. Bench makes it easy to:
+A **small, statistical benchmarking library** for Go, designed for robust, repeatable, and insightful performance analysis using state-of-the-art BCa bootstrap inference. 
 
-- **Analyze performance** with Welch's t-test for statistical significance
- - **Persist results** incrementally in Gob or JSON for resilience and tracking
-- **Compare runs** and reference implementations with p-values
+- **Analyze performance** with BCa (Bias-Corrected and Accelerated) bootstrap for rigorous statistical significance
+- **Persist results** incrementally in Gob format for resilience and tracking
+- **Compare runs** and reference implementations with confidence intervals
 - **Format output** in clean, customizable tables
-- **Filter benchmarks** by name prefix for focused runs
-- **Configure sampling** for precise control
+- **Configurable** thresholds, sampling and other options for precise control
+
+This library applies the **bias-corrected and accelerated** (BCa) bootstrap to every set of timings. It shuffles the raw measurements **10 000 times** (by default), then adjusts the percentile endpoints with the bias and the acceleration. BCa is non-parametric and enjoys second-order accuracy, so its confidence interval keeps nominal coverage without assuming any particular distribution and stays stable in the presence of moderate skew. 
+
+However, good practice is **25+ independent timings**; smaller n inflates the acceleration estimate and can widen intervals. Similarly, very heavy-tailed timing data can erode coverage and may need trimming or more samples.
 
 
 **Use When**
 
-* ✅ You want statistically sound performance comparisons between Go implementations
+* ✅ You want statistically rigorous performance comparisons between Go implementations
+* ✅ You need publication-quality statistical analysis with confidence intervals
 * ✅ You need incremental, resilient result saving (e.g., for CI or long runs)
 * ✅ You want to compare against previous or reference runs with clear significance
 * ✅ You prefer clean, readable output and easy filtering
@@ -36,16 +40,11 @@ A **lightweight, statistical benchmarking library** for Go, designed for robust,
 ### Example Output
 
 ```
-name              time/op     ops/s      allocs/op  vs prev            vs ref
------------------ ----------- ---------- ---------- ------------------ ------------------
-and 1.0K (seq)    920.0 ns    1.1M       4          ✅ +7% (p=0.000)   ❌ -18% (p=0.000)
-and 1.0K (rnd)    665.9 ns    1.5M       4          🟰 similar         ❌ -11% (p=0.000)
-and 1.0K (sps)    1.3 µs      754.5K     19         🟰 similar         🟰 -2% (p=0.004)
-and 1.0K (dns)    172.0 ns    5.8M       4          ❌ -7% (p=0.000)   ❌ -18% (p=0.000)
-and 10.0M (seq)   191.3 µs    5.2K       156        🟰 +5% (p=0.001)   ✅ +45% (p=0.000)
-and 10.0M (rnd)   274.1 µs    3.6K       176        ✅ +29% (p=0.000)  ✅ +2% (p=0.001)
+name                 time/op      ops/s        allocs/op    vs prev             
+-------------------- ------------ ------------ ------------ ------------------ 
+find                 479.7 µs     2.1K         0            ✅ +65% [-33%,-24%]
+sort                 47.4 ns      21.1M        1            🟰 similar
 ```
-
 
 ## Quick Start
 
@@ -68,6 +67,7 @@ func main() {
     },
     bench.WithFile("results.json"),   // optional: set results file
     bench.WithFilter("set"),          // optional: only run benchmarks starting with "set"
+    bench.WithConfidence(95.0),       // optional: set confidence level (default 99.9%)
     // Add more options as needed
     )
 }

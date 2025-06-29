@@ -1,3 +1,6 @@
+// Copyright (c) Roman Atachiants and contributors. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root
+
 package bench
 
 import (
@@ -6,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codahale/tinystat"
+	"gonum.org/v1/gonum/stat"
 )
 
 const (
@@ -16,6 +19,7 @@ const (
 	DefaultTableFmt   = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
 	DefaultFilename   = "bench.gob"
 	DefaultConfidence = 99.9
+	boostramSamples   = 10000
 )
 
 // Result represents a single benchmark result
@@ -133,7 +137,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 
 	// Benchmark our implementation
 	ourSamples, ourAllocs := r.benchmark(ourFn)
-	nsPerOp := tinystat.Summarize(ourSamples).Mean
+	nsPerOp := stat.Mean(ourSamples, nil)
 	opsPerSec := 1e9 / nsPerOp
 
 	// Calculate average allocations per operation
@@ -154,32 +158,34 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 	prevResult, exists := prevResults[name]
 	delta := "new"
 	if exists {
-		delta = r.formatComparison(ourSamples, prevResult.Samples)
+		report := bca(prevResult.Samples, ourSamples, r.confidence/100.0, boostramSamples)
+		delta = r.formatComparison(report)
 	}
 
 	// Calculate vs reference if provided
 	vsRef := ""
 	if refFn != nil {
 		refSamples, _ := r.benchmark(refFn)
-		vsRef = r.formatComparison(ourSamples, refSamples)
+		report := bca(refSamples, ourSamples, r.confidence/100.0, boostramSamples)
+		vsRef = r.formatComparison(report)
 	}
 
 	// Format and display result
 	if r.showRef {
 		fmt.Printf(r.tableFmt,
 			name,
-			r.formatTime(nsPerOp),
-			r.formatOps(opsPerSec),
-			r.formatAllocs(avgAllocsPerOp),
+			formatTime(nsPerOp),
+			formatOps(opsPerSec),
+			formatAllocs(avgAllocsPerOp),
 			delta,
 			vsRef)
 	} else {
-		fmt.Printf("%-20s %-12s %-12s %-12s %-18s\n",
+		fmt.Printf(r.tableFmt,
 			name,
-			r.formatTime(nsPerOp),
-			r.formatOps(opsPerSec),
-			r.formatAllocs(avgAllocsPerOp),
-			delta)
+			formatTime(nsPerOp),
+			formatOps(opsPerSec),
+			formatAllocs(avgAllocsPerOp),
+			delta, "")
 	}
 
 	// Save result incrementally
