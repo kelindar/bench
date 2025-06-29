@@ -16,6 +16,7 @@ func TestWithOptions(t *testing.T) {
 	WithDuration(123 * time.Millisecond)(&cfg)
 	WithReference()(&cfg)
 	WithDryRun()(&cfg)
+	WithConfidence(95.5)(&cfg)
 
 	assert.Equal(t, "foo.json", cfg.filename)
 	assert.Equal(t, "bar", cfg.filter)
@@ -25,6 +26,7 @@ func TestWithOptions(t *testing.T) {
 	assert.True(t, cfg.dryRun)
 	_, ok := cfg.codec.(jsonCodec)
 	assert.True(t, ok)
+	assert.InDelta(t, 95.5, cfg.confidence, 0.001)
 }
 
 func TestShouldRun(t *testing.T) {

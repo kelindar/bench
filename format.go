@@ -35,7 +35,7 @@ func (r *B) formatComparison(ourSamples, otherSamples []float64) string {
 
 	speedup := our.Mean / other.Mean
 	changePercent := (speedup - 1) * 100
-	diff := tinystat.Compare(our, other, 99.9)
+	diff := tinystat.Compare(our, other, r.confidence)
 
 	// For non-significant changes close to zero, show "similar"
 	if !diff.Significant() && changePercent >= -2 && changePercent <= 2 {

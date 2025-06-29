@@ -13,14 +13,15 @@ type Option func(*config)
 
 // config holds runtime configuration for benchmarks.
 type config struct {
-	filename string
-	filter   string
-	samples  int
-	duration time.Duration
-	tableFmt string
-	showRef  bool
-	dryRun   bool
-	codec    codec
+	filename   string
+	filter     string
+	samples    int
+	duration   time.Duration
+	tableFmt   string
+	showRef    bool
+	dryRun     bool
+	confidence float64
+	codec      codec
 }
 
 // WithFile sets the filename for benchmark results
@@ -67,6 +68,13 @@ func WithReference() Option {
 func WithDryRun() Option {
 	return func(c *config) {
 		c.dryRun = true
+	}
+}
+
+// WithConfidence sets the confidence level for statistical significance tests
+func WithConfidence(level float64) Option {
+	return func(c *config) {
+		c.confidence = level
 	}
 }
 
