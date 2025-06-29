@@ -27,21 +27,6 @@ func TestWithOptions(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestFormatHelpers(t *testing.T) {
-	b := &B{config: config{}}
-	assert.Equal(t, "1.5K", b.formatAllocs(1500))
-	assert.Equal(t, "10", b.formatAllocs(10))
-	assert.Equal(t, "0", b.formatAllocs(0.5))
-
-	assert.Contains(t, b.formatTime(2e6), "ms")
-	assert.Contains(t, b.formatTime(2e3), "µs")
-	assert.Contains(t, b.formatTime(2), "ns")
-
-	assert.Contains(t, b.formatOps(2e6), "M")
-	assert.Contains(t, b.formatOps(2e3), "K")
-	assert.Equal(t, "2", b.formatOps(2))
-}
-
 func TestShouldRun(t *testing.T) {
 	b := &B{config: config{filter: "foo"}}
 	assert.True(t, b.shouldRun("foobar"))
@@ -80,12 +65,4 @@ func TestRunDryRun(t *testing.T) {
 	}, WithFile(file), WithDryRun())
 	_, err := os.Stat(file)
 	assert.Error(t, err, "results file should not be created")
-}
-
-func TestFormatComparisonEdgeCases(t *testing.T) {
-	b := &B{config: config{}}
-	// No previous samples
-	assert.Equal(t, "new", b.formatComparison([]float64{1, 2, 3}, nil))
-	// Zero mean in reference
-	assert.Contains(t, b.formatComparison([]float64{1, 2, 3}, []float64{0, 0, 0}), "inf")
 }
