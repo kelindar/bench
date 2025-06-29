@@ -74,7 +74,7 @@ func (r *B) shouldRun(name string) bool {
 }
 
 // benchmark runs a function repeatedly and returns performance samples
-func (r *B) benchmark(fn func(b *B, op int)) (samples []float64, allocs []float64) {
+func (r *B) benchmark(fn func(op int) int) (samples []float64, allocs []float64) {
 	samples = make([]float64, 0, r.samples)
 	allocs = make([]float64, 0, r.samples)
 	for i := 0; i < r.samples; i++ {
@@ -88,8 +88,7 @@ func (r *B) benchmark(fn func(b *B, op int)) (samples []float64, allocs []float6
 		start := time.Now()
 		ops := 0
 		for time.Since(start) < r.duration {
-			fn(r, ops)
-			ops++
+			ops += fn(ops)
 		}
 		elapsed := time.Since(start)
 
@@ -105,7 +104,26 @@ func (r *B) benchmark(fn func(b *B, op int)) (samples []float64, allocs []float6
 }
 
 // Run executes a benchmark with optional reference comparison
-func (r *B) Run(name string, ourFn func(b *B, op int), refFn ...func(b *B, op int)) {
+func (r *B) Run(name string, ourFn func(i int), refFn ...func(i int)) {
+	var refWrapped func(int) int
+	if len(refFn) > 0 && refFn[0] != nil {
+		rf := refFn[0]
+		refWrapped = func(i int) int { rf(i); return 1 }
+	}
+	r.run(name, func(i int) int { ourFn(i); return 1 }, refWrapped)
+}
+
+// RunN executes a benchmark where each iteration may return the number of
+// operations performed. This allows amortizing expensive setup or batching.
+func (r *B) RunN(name string, ourFn func(i int) int, refFn ...func(i int) int) {
+	var refWrapped func(int) int
+	if len(refFn) > 0 {
+		refWrapped = refFn[0]
+	}
+	r.run(name, ourFn, refWrapped)
+}
+
+func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 	if !r.shouldRun(name) {
 		return
 	}
@@ -141,8 +159,8 @@ func (r *B) Run(name string, ourFn func(b *B, op int), refFn ...func(b *B, op in
 
 	// Calculate vs reference if provided
 	vsRef := ""
-	if len(refFn) > 0 && refFn[0] != nil {
-		refSamples, _ := r.benchmark(func(b *B, op int) { refFn[0](b, op) })
+	if refFn != nil {
+		refSamples, _ := r.benchmark(refFn)
 		vsRef = r.formatComparison(ourSamples, refSamples)
 	}
 
