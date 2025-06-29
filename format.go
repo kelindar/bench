@@ -30,7 +30,7 @@ func (r *B) formatComparison(ourSamples, otherSamples []float64) string {
 		if our.Mean > 0 {
 			return "✅ +inf%"
 		}
-		return "~ similar"
+		return "🟰 similar"
 	}
 
 	speedup := our.Mean / other.Mean
@@ -39,7 +39,7 @@ func (r *B) formatComparison(ourSamples, otherSamples []float64) string {
 
 	// For non-significant changes close to zero, show "similar"
 	if !diff.Significant() && changePercent >= -2 && changePercent <= 2 {
-		return "~ similar"
+		return "🟰 similar"
 	}
 
 	var sign string
@@ -50,7 +50,7 @@ func (r *B) formatComparison(ourSamples, otherSamples []float64) string {
 	}
 
 	if !diff.Significant() {
-		return fmt.Sprintf("~ %s%.0f%% (p=%.3f)", sign, changePercent, diff.PValue)
+		return fmt.Sprintf("🟰 %s%.0f%% (p=%.3f)", sign, changePercent, diff.PValue)
 	}
 
 	if speedup > 1 {
