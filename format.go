@@ -5,6 +5,7 @@ package bench
 
 import (
 	"fmt"
+	"math"
 )
 
 // formatComparison formats statistical comparison between two sample sets using BCa bootstrap
@@ -25,20 +26,42 @@ func (r *B) formatComparison(ourSamples, otherSamples []float64) string {
 	}
 	otherMean /= float64(len(otherSamples))
 
+	// Handle edge cases more robustly
+	if otherMean == 0 || ourMean == 0 {
+		return "🟰 similar" // Conservative: avoid infinite or invalid ratios
+	}
+
+	// Check for unreasonable performance differences (likely measurement error)
+	ratio := ourMean / otherMean
+	if ratio > 1000 || ratio < 0.001 {
+		return "🟰 similar" // Conservative: avoid reporting massive differences
+	}
+
 	// Perform BCa bootstrap with 10,000 samples
-	bootstrapResult := BCaBootstrap(otherSamples, ourSamples, r.confidence/100.0, 10000)
+	bootstrapResult := bca(otherSamples, ourSamples, r.confidence/100.0, 10000)
 
 	speedup := otherMean / ourMean
 	change := (speedup - 1) * 100
 
-	// Convert delta confidence interval to percentage bounds
-	// If delta CI is [lowerCI, upperCI] in absolute units (ns),
-	// then percentage CI is approximately:
-	// [lowerCI/otherMean * 100, upperCI/otherMean * 100]
+	// Convert delta confidence interval to percentage bounds correctly
+	// If delta CI is [lowerCI, upperCI] in absolute units,
+	// convert to percentage changes relative to baseline
 	var interval [2]float64
 	if otherMean != 0 {
-		interval[0] = bootstrapResult.LowerCI / otherMean * 100
-		interval[1] = bootstrapResult.UpperCI / otherMean * 100
+		// Calculate percentage change for each CI bound
+		// Lower bound: what % change if the true difference is lowerCI
+		// Upper bound: what % change if the true difference is upperCI
+		if (otherMean - bootstrapResult.LowerCI) != 0 {
+			interval[0] = (otherMean/(otherMean-bootstrapResult.LowerCI) - 1) * 100
+		}
+		if (otherMean - bootstrapResult.UpperCI) != 0 {
+			interval[1] = (otherMean/(otherMean-bootstrapResult.UpperCI) - 1) * 100
+		}
+
+		// Ensure interval is ordered correctly (lower <= upper)
+		if interval[0] > interval[1] {
+			interval[0], interval[1] = interval[1], interval[0]
+		}
 	}
 
 	switch {
@@ -60,16 +83,26 @@ func formatChange(changePercent float64, interval [2]float64) string {
 
 	switch {
 	case changePercent >= 1000:
-		return fmt.Sprintf("%.0fx", changePercent)
+		return fmt.Sprintf("+%.0fx", changePercent)
 	case changePercent > 100:
-		return fmt.Sprintf("%.1fx", changePercent)
+		return fmt.Sprintf("+%.1fx", changePercent)
 	default:
 		return fmt.Sprintf("%s%.0f%% %s", sign, changePercent, formatCI(interval))
 	}
 }
 
 func formatCI(interval [2]float64) string {
-	return fmt.Sprintf("[%.0f%%,%.0f%%]", interval[0], interval[1])
+	switch {
+	case math.IsNaN(interval[0]) || math.IsNaN(interval[1]) ||
+		math.IsInf(interval[0], 0) || math.IsInf(interval[1], 0):
+		return ""
+	case math.Abs(interval[1]-interval[0]) > 100:
+		return ""
+	case math.Abs(interval[0]) > 1000 || math.Abs(interval[1]) > 1000:
+		return ""
+	default:
+		return fmt.Sprintf("[%.0f%%,%.0f%%]", interval[0], interval[1])
+	}
 }
 
 // formatTime formats nanoseconds per operation

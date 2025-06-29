@@ -24,9 +24,9 @@ func TestFormatHelpers(t *testing.T) {
 }
 
 func TestFormatComparisonEdgeCases(t *testing.T) {
-	b := &B{config: config{}}
+	b := &B{config: config{confidence: 95.0}}
 	// No previous samples
 	assert.Equal(t, "new", b.formatComparison([]float64{1, 2, 3}, nil))
-	// Zero mean in reference
-	assert.Contains(t, b.formatComparison([]float64{1, 2, 3}, []float64{0, 0, 0}), "inf")
+	// Zero mean in reference - now conservative, returns "similar"
+	assert.Equal(t, "🟰 similar", b.formatComparison([]float64{1, 2, 3}, []float64{0, 0, 0}))
 }

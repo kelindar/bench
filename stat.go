@@ -22,20 +22,21 @@ type bootstrap struct {
 	Samples     int     // Samples is the number of bootstrap samples used
 }
 
-// BCaBootstrap performs BCa (Bias-Corrected accelerated) bootstrap inference
+// bca performs BCa (Bias-Corrected accelerated) bootstrap inference
 // comparing two samples. Returns confidence interval for the difference in means.
-func BCaBootstrap(control, experiment []float64, confidence float64, bootstrapSamples int) bootstrap {
+func bca(control, experiment []float64, confidence float64, bootstrapSamples int) bootstrap {
 	if len(control) == 0 || len(experiment) == 0 {
 		return bootstrap{}
 	}
 
-	// Use deterministic seeding based on data for reproducible results within session
-	seed1, seed2 := hashSamples(control, experiment)
-	rng := rand.New(rand.NewPCG(seed1, seed2))
-
-	// Original statistic (difference in means)
+	// Use more stable seeding based on sample statistics rather than raw values
+	// This reduces sensitivity to measurement noise
 	controlMean := stat.Mean(control, nil)
 	experimentMean := stat.Mean(experiment, nil)
+	seed := uint64(math.Float64bits(controlMean) ^ math.Float64bits(experimentMean))
+	rng := rand.New(rand.NewPCG(seed, seed+1))
+
+	// Original statistic (difference in means)
 	originalDelta := experimentMean - controlMean
 
 	// Step 1: Bootstrap resampling
@@ -61,7 +62,7 @@ func BCaBootstrap(control, experiment []float64, confidence float64, bootstrapSa
 	alpha := 1.0 - confidence
 	lowerCI, upperCI := computeBCaCI(bootstrapDeltas, biasCorrection, acceleration, alpha)
 
-	// Step 5: Determine significance with tolerance for jittering
+	// Step 5: More conservative significance detection
 	significant := isSignificant(lowerCI, upperCI, originalDelta, controlMean, experimentMean)
 
 	return bootstrap{
@@ -74,42 +75,25 @@ func BCaBootstrap(control, experiment []float64, confidence float64, bootstrapSa
 	}
 }
 
-// hashSamples creates a deterministic seed from sample data
-func hashSamples(control, experiment []float64) (uint64, uint64) {
-	var hash1, hash2 uint64 = 0x9e3779b9, 0x85ebca6b
-
-	for _, v := range control {
-		bits := math.Float64bits(v)
-		hash1 ^= bits + 0x9e3779b9 + (hash1 << 6) + (hash1 >> 2)
-	}
-
-	for _, v := range experiment {
-		bits := math.Float64bits(v)
-		hash2 ^= bits + 0x85ebca6b + (hash2 << 6) + (hash2 >> 2)
-	}
-
-	return hash1, hash2
-}
-
-// isSignificant determines significance with tolerance to prevent jittering
+// isSignificant uses more conservative thresholds to reduce false positives
 func isSignificant(lowerCI, upperCI, delta, controlMean, experimentMean float64) bool {
-	// If either mean is zero, use absolute difference threshold
 	if controlMean == 0 || experimentMean == 0 {
-		return math.Abs(delta) > 0.1 && (lowerCI > 0 || upperCI < 0)
+		return false // Conservative: don't claim significance for edge cases
 	}
 
-	// Calculate percentage effect size
-	percentEffect := math.Abs(delta / controlMean * 100)
+	// CI must clearly exclude 0 with larger tolerance
+	// Use 5% of the control mean as minimum detectable difference
+	mde := math.Abs(controlMean * 0.05)
+	tolerance := math.Max(mde, math.Abs(delta)*0.1)
+	statsig := lowerCI > tolerance || upperCI < -tolerance
 
-	// Practical significance threshold: effect must be > 1% and CI must exclude 0
-	practicallySignificant := percentEffect > 1.0
+	// Additionally, require that the CI doesn't span more than 50% range
+	// This filters out very wide, uncertain intervals
+	ciWidth := math.Abs(upperCI - lowerCI)
+	ciRelative := ciWidth / math.Abs(controlMean) * 100
+	isNarrow := ciRelative < 50.0
 
-	// Statistical significance: CI must clearly exclude 0 (with tolerance)
-	tolerance := math.Max(0.01, math.Abs(delta)*0.01)
-	statistically := lowerCI > tolerance || upperCI < -tolerance
-
-	// Both conditions must be met
-	return practicallySignificant && statistically
+	return statsig && isNarrow
 }
 
 // resampleWithReplacement performs bootstrap resampling with replacement using provided RNG
@@ -120,6 +104,7 @@ func resampleWithReplacement(data []float64, rng *rand.Rand) []float64 {
 		idx := rng.IntN(n)
 		resampled[i] = data[idx]
 	}
+
 	return resampled
 }
 

@@ -16,7 +16,7 @@ func TestBCaBootstrapBasic(t *testing.T) {
 	control := []float64{10.0, 12.0, 11.0, 13.0, 9.0, 11.5, 10.5, 12.5}
 	experiment := []float64{8.0, 9.0, 7.5, 8.5, 7.0, 8.0, 9.5, 8.2}
 
-	result := BCaBootstrap(control, experiment, 0.95, 1000)
+	result := bca(control, experiment, 0.95, 1000)
 
 	// Basic validation
 	assert.True(t, result.Delta < 0, "Expected negative delta (experiment faster)")
@@ -31,7 +31,7 @@ func TestBCaBootstrapIdentical(t *testing.T) {
 
 	// Test with identical data (should not be significant)
 	identical := []float64{10.0, 10.0, 10.0, 10.0, 10.0}
-	result := BCaBootstrap(identical, identical, 0.95, 1000)
+	result := bca(identical, identical, 0.95, 1000)
 
 	assert.False(t, result.Significant, "Identical data should not be significant")
 	assert.InDelta(t, 0.0, result.Delta, 0.001, "Delta should be near zero for identical data")
@@ -46,7 +46,7 @@ func TestBCaBootstrapSmallDifference(t *testing.T) {
 	control := []float64{10.0, 10.1, 9.9, 10.0, 10.1}
 	experiment := []float64{10.05, 10.15, 9.95, 10.05, 10.15}
 
-	result := BCaBootstrap(control, experiment, 0.95, 1000)
+	result := bca(control, experiment, 0.95, 1000)
 
 	// Should have reasonable CI bounds
 	assert.True(t, result.LowerCI < result.UpperCI, "Lower CI should be less than upper CI")
@@ -57,14 +57,14 @@ func TestBCaBootstrapEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	// Test with empty slices
-	result := BCaBootstrap([]float64{}, []float64{1.0}, 0.95, 100)
+	result := bca([]float64{}, []float64{1.0}, 0.95, 100)
 	assert.Equal(t, bootstrap{}, result, "Should return empty result for empty control")
 
-	result = BCaBootstrap([]float64{1.0}, []float64{}, 0.95, 100)
+	result = bca([]float64{1.0}, []float64{}, 0.95, 100)
 	assert.Equal(t, bootstrap{}, result, "Should return empty result for empty experiment")
 
 	// Test with single values
-	result = BCaBootstrap([]float64{5.0}, []float64{10.0}, 0.95, 100)
+	result = bca([]float64{5.0}, []float64{10.0}, 0.95, 100)
 	assert.Equal(t, 5.0, result.Delta, "Delta should be 5.0")
 	assert.Equal(t, 0.95, result.Confidence, "Confidence should match")
 }
@@ -76,8 +76,8 @@ func TestBCaBootstrapConsistency(t *testing.T) {
 	data := []float64{10.0, 10.1, 9.9, 10.0, 10.05}
 
 	// Run multiple times - should be consistent due to deterministic seeding
-	result1 := BCaBootstrap(data, data, 0.95, 1000)
-	result2 := BCaBootstrap(data, data, 0.95, 1000)
+	result1 := bca(data, data, 0.95, 1000)
+	result2 := bca(data, data, 0.95, 1000)
 
 	assert.Equal(t, result1.Delta, result2.Delta, "Should get identical deltas")
 	assert.Equal(t, result1.Significant, result2.Significant, "Should get identical significance")
@@ -87,12 +87,21 @@ func TestBCaBootstrapConsistency(t *testing.T) {
 func TestBCaBootstrapPracticalSignificance(t *testing.T) {
 	t.Parallel()
 
-	// Test that tiny differences are not considered practically significant
+	// Test that small differences are not considered practically significant
 	control := []float64{100.0, 100.1, 99.9, 100.0}
-	experiment := []float64{100.05, 100.15, 99.95, 100.05} // 0.05% difference
+	experiment := []float64{103.0, 103.1, 102.9, 103.0} // 3% difference (below 5% threshold)
 
-	result := BCaBootstrap(control, experiment, 0.95, 1000)
+	result := bca(control, experiment, 0.95, 1000)
 
-	// Should not be significant due to practical significance threshold
-	assert.False(t, result.Significant, "Tiny differences should not be practically significant")
+	// Should not be significant due to conservative practical significance threshold (5%)
+	assert.False(t, result.Significant, "Small differences (< 5%) should not be practically significant")
+
+	// Test with larger difference that should be significant
+	control2 := []float64{100.0, 100.1, 99.9, 100.0}
+	experiment2 := []float64{90.0, 90.1, 89.9, 90.0} // 10% difference (above 5% threshold)
+
+	result2 := bca(control2, experiment2, 0.95, 1000)
+
+	// Should be significant due to large practical difference
+	assert.True(t, result2.Significant, "Large differences (> 5%) should be practically significant")
 }

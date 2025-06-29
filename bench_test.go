@@ -78,7 +78,7 @@ func TestBCaBootstrap(t *testing.T) {
 	experiment := []float64{8.0, 9.0, 7.5, 8.5, 7.0, 8.0, 9.5, 8.2}
 
 	// Run BCa bootstrap with 95% confidence
-	result := BCaBootstrap(control, experiment, 0.95, 1000)
+	result := bca(control, experiment, 0.95, 1000)
 
 	// Check that we get reasonable results
 	assert.True(t, result.Delta < 0, "Expected negative delta (experiment faster)")
@@ -91,7 +91,7 @@ func TestBCaBootstrap(t *testing.T) {
 
 	// Test with identical data (should not be significant)
 	identical := []float64{10.0, 10.0, 10.0, 10.0}
-	result2 := BCaBootstrap(identical, identical, 0.95, 1000)
+	result2 := bca(identical, identical, 0.95, 1000)
 	assert.False(t, result2.Significant, "Identical data should not be significant")
 	assert.InDelta(t, 0.0, result2.Delta, 0.001, "Delta should be near zero for identical data")
 }
