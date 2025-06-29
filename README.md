@@ -30,6 +30,7 @@ However, good practice is **25+ independent timings**; smaller n inflates the ac
 * ✅ You need incremental, resilient result saving (e.g., for CI or long runs)
 * ✅ You want to compare against previous or reference runs with clear significance
 * ✅ You prefer clean, readable output and easy filtering
+* ✅ You need to assert benchmarks in CI to avoid performance regressions
 
 **Not For**
 
@@ -70,6 +71,20 @@ func main() {
     bench.WithConfidence(95.0),       // optional: set confidence level (default 99.9%)
     // Add more options as needed
     )
+}
+```
+
+### Asserting Benchmarks in CI
+
+Use `bench.Assert` inside your tests to automatically fail when a benchmark regresses compared to the previously recorded results. Assertions run in dry-run mode by default and are skipped when tests are executed with the `-short` flag.
+
+```go
+func TestPerformance(t *testing.T) {
+    bench.Assert(t, func(b *bench.B) {
+        b.Run("my-bench", func(i int) {
+            // code to benchmark
+        })
+    }, bench.WithFile("baseline.json"))
 }
 ```
 
