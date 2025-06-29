@@ -11,10 +11,11 @@ import (
 
 const (
 	// Default sampling configuration
-	DefaultSamples  = 100
-	DefaultDuration = 10 * time.Millisecond
-	DefaultTableFmt = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
-	DefaultFilename = "bench.json"
+	DefaultSamples    = 100
+	DefaultDuration   = 10 * time.Millisecond
+	DefaultTableFmt   = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
+	DefaultFilename   = "bench.json"
+	DefaultConfidence = 99.9
 )
 
 // Result represents a single benchmark result
@@ -33,11 +34,12 @@ type B struct {
 // Run executes benchmarks with the given configuration
 func Run(fn func(*B), opts ...Option) {
 	cfg := config{
-		filename: DefaultFilename,
-		samples:  DefaultSamples,
-		duration: DefaultDuration,
-		tableFmt: DefaultTableFmt,
-		codec:    jsonCodec{},
+		filename:   DefaultFilename,
+		samples:    DefaultSamples,
+		duration:   DefaultDuration,
+		tableFmt:   DefaultTableFmt,
+		confidence: DefaultConfidence,
+		codec:      jsonCodec{},
 	}
 
 	// Apply flags first so user options can override
