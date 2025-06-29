@@ -13,7 +13,7 @@
 A **lightweight, statistical benchmarking library** for Go, designed for robust, repeatable, and insightful performance analysis. Bench makes it easy to:
 
 - **Analyze performance** with Welch's t-test for statistical significance
- - **Persist results** incrementally in Gob format for resilience and tracking
+ - **Persist results** incrementally in Gob or JSON for resilience and tracking
 - **Compare runs** and reference implementations with p-values
 - **Format output** in clean, customizable tables
 - **Filter benchmarks** by name prefix for focused runs
@@ -85,6 +85,7 @@ The benchmark runner can be customized with a set of option functions. The table
 | `WithDuration` | Controls how long each sample runs. Increase the duration when the code under test is very fast or when you want less variation between runs. |
 | `WithReference` | Enables the reference comparison column in the output. Provide a reference implementation when calling `b.Run` and Bench will show how your code performs against that reference, making regressions easy to spot. |
 | `WithDryRun` | Prevents the library from writing results to disk. This option is useful for quick experiments or CI jobs where you just want to see the formatted output without updating any files. |
+| `WithConfidence` | Sets the confidence level (in percent) for significance testing. Higher values make it harder for a difference to be considered statistically significant. |
 
 ## About
 
