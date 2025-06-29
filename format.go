@@ -33,7 +33,7 @@ func (r *B) formatComparison(ourSamples, otherSamples []float64) string {
 		return "🟰 similar"
 	}
 
-	speedup := our.Mean / other.Mean
+	speedup := other.Mean / our.Mean
 	changePercent := (speedup - 1) * 100
 	diff := tinystat.Compare(our, other, r.confidence)
 
