@@ -18,6 +18,10 @@ A **small, statistical benchmarking library** for Go, designed for robust, repea
 - **Format output** in clean, customizable tables
 - **Configurable** thresholds, sampling and other options for precise control
 
+This library applies the **bias-corrected and accelerated** (BCa) bootstrap to every set of timings. It shuffles the raw measurements **10 000 times** (by default), then adjusts the percentile endpoints with the bias and the acceleration. BCa is non-parametric and enjoys second-order accuracy, so its confidence interval keeps nominal coverage without assuming any particular distribution and stays stable in the presence of moderate skew. 
+
+However, good practice is **25+ independent timings**; smaller n inflates the acceleration estimate and can widen intervals. Similarly, very heavy-tailed timing data can erode coverage and may need trimming or more samples.
+
 
 **Use When**
 
@@ -32,20 +36,6 @@ A **small, statistical benchmarking library** for Go, designed for robust, repea
 * ❌ Micro-benchmarks where Go's built-in `testing.B` is sufficient
 * ❌ Long-term, distributed, or multi-process benchmarking
 * ❌ Profiling memory/cpu in detail (use pprof for that)
-
-
-We use **BCa (Bias-Corrected accelerated) bootstrap inference** for all statistical comparisons:
-
-- **Non-parametric method** using 10,000 bootstrap resamples by default
-- **Bias-corrected and accelerated** confidence intervals
-- **State-of-the-art method** used in recent benchmarking literature
-- **Publication-quality results** suitable for rigorous analysis
-
-### Why BCa Bootstrap?
-
-Bench applies the **bias-corrected and accelerated** (BCa) bootstrap to every set of timings. It shuffles the raw measurements **10 000 times** (by default), then adjusts the percentile endpoints with the bias and the acceleration. BCa is non-parametric and enjoys second-order accuracy, so its confidence interval keeps nominal coverage without assuming any particular distribution and stays stable in the presence of moderate skew. 
-
-However, good practice is **25+ independent timings**; smaller n inflates the acceleration estimate and can widen intervals. Similarly, very heavy-tailed timing data can erode coverage and may need trimming or more samples.
 
 ### Example Output
 
