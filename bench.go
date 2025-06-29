@@ -94,10 +94,10 @@ func (r *B) benchmark(fn func(op int) int) (samples []float64, allocs []float64)
 
 		runtime.ReadMemStats(&m2)
 
-		opsPerSec := float64(ops) / elapsed.Seconds()
+		nsPerOp := float64(elapsed.Nanoseconds()) / float64(ops)
 		allocsPerOp := float64(m2.Mallocs-m1.Mallocs) / float64(ops)
 
-		samples = append(samples, opsPerSec)
+		samples = append(samples, nsPerOp)
 		allocs = append(allocs, allocsPerOp)
 	}
 	return samples, allocs
@@ -133,8 +133,8 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 
 	// Benchmark our implementation
 	ourSamples, ourAllocs := r.benchmark(ourFn)
-	ourMean := tinystat.Summarize(ourSamples).Mean
-	nsPerOp := 1e9 / ourMean
+	nsPerOp := tinystat.Summarize(ourSamples).Mean
+	opsPerSec := 1e9 / nsPerOp
 
 	// Calculate average allocations per operation
 	var totalAllocs float64
@@ -169,7 +169,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 		fmt.Printf(r.tableFmt,
 			name,
 			r.formatTime(nsPerOp),
-			r.formatOps(ourMean),
+			r.formatOps(opsPerSec),
 			r.formatAllocs(avgAllocsPerOp),
 			delta,
 			vsRef)
@@ -177,7 +177,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 		fmt.Printf("%-20s %-12s %-12s %-12s %-18s\n",
 			name,
 			r.formatTime(nsPerOp),
-			r.formatOps(ourMean),
+			r.formatOps(opsPerSec),
 			r.formatAllocs(avgAllocsPerOp),
 			delta)
 	}
