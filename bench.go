@@ -28,53 +28,6 @@ type Result struct {
 	Timestamp int64     `json:"timestamp"`
 }
 
-// Option configures the benchmark runner
-type Option func(*config)
-
-type config struct {
-	filename string
-	filter   string
-	samples  int
-	duration time.Duration
-	tableFmt string
-	showRef  bool
-}
-
-// WithFile sets the filename for benchmark results
-func WithFile(filename string) Option {
-	return func(c *config) {
-		c.filename = filename
-	}
-}
-
-// WithFilter sets a prefix filter for benchmark names
-func WithFilter(prefix string) Option {
-	return func(c *config) {
-		c.filter = prefix
-	}
-}
-
-// WithSamples sets the number of samples to collect per benchmark
-func WithSamples(n int) Option {
-	return func(c *config) {
-		c.samples = n
-	}
-}
-
-// WithDuration sets the duration for each sample
-func WithDuration(d time.Duration) Option {
-	return func(c *config) {
-		c.duration = d
-	}
-}
-
-// WithReference enables reference comparison column
-func WithReference() Option {
-	return func(c *config) {
-		c.showRef = true
-	}
-}
-
 // B manages benchmarks and handles persistence
 type B struct {
 	config
@@ -83,6 +36,7 @@ type B struct {
 // Run executes benchmarks with the given configuration
 func Run(fn func(*B), opts ...Option) {
 	prefix := flag.String("bench", "", "Run only benchmarks with this prefix")
+	dry := flag.Bool("n", false, "dry run - do not update bench.json")
 	flag.Parse()
 
 	cfg := config{
@@ -91,6 +45,7 @@ func Run(fn func(*B), opts ...Option) {
 		duration: DefaultDuration,
 		tableFmt: DefaultTableFmt,
 		filter:   *prefix,
+		dryRun:   *dry,
 	}
 
 	for _, opt := range opts {
@@ -181,6 +136,10 @@ func (r *B) loadResults() map[string]Result {
 
 // saveResult saves a single result incrementally
 func (r *B) saveResult(result Result) {
+	if r.dryRun {
+		return
+	}
+
 	// Load current results to merge with
 	current := r.loadResults()
 	current[result.Name] = result

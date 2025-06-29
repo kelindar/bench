@@ -15,12 +15,14 @@ func TestWithOptions(t *testing.T) {
 	WithSamples(42)(&cfg)
 	WithDuration(123 * time.Millisecond)(&cfg)
 	WithReference()(&cfg)
+	WithDryRun()(&cfg)
 
 	assert.Equal(t, "foo.json", cfg.filename)
 	assert.Equal(t, "bar", cfg.filter)
 	assert.Equal(t, 42, cfg.samples)
 	assert.Equal(t, 123*time.Millisecond, cfg.duration)
 	assert.True(t, cfg.showRef)
+	assert.True(t, cfg.dryRun)
 }
 
 func TestFormatHelpers(t *testing.T) {
@@ -76,6 +78,16 @@ func TestRunWithReferenceAndNoPrev(t *testing.T) {
 	}, WithFile(file), WithReference())
 	_, err := os.Stat(file)
 	assert.NoError(t, err, "results file not created")
+}
+
+func TestRunDryRun(t *testing.T) {
+	file := "test_bench_dry.json"
+	defer os.Remove(file)
+	Run(func(b *B) {
+		b.Run("bench", func(b *B, op int) {})
+	}, WithFile(file), WithDryRun())
+	_, err := os.Stat(file)
+	assert.Error(t, err, "results file should not be created")
 }
 
 func TestFormatComparisonEdgeCases(t *testing.T) {
