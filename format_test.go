@@ -25,12 +25,12 @@ func TestFormatHelpers(t *testing.T) {
 
 func TestFormatChange(t *testing.T) {
 	// Large speedups should be formatted as multipliers
-	assert.Equal(t, "+3.5x", formatChange(250, [2]float64{}))
-	assert.Equal(t, "+13x", formatChange(1200, [2]float64{}))
+	assert.Equal(t, "+3.5x", formatChange(250))
+	assert.Equal(t, "+13x", formatChange(1200))
 
 	// Percent formatting with interval
-	out := formatChange(10, [2]float64{5, 15})
-	assert.Equal(t, "+10% [5%,15%]", out)
+	out := formatChange(10)
+	assert.Equal(t, "+10%", out)
 }
 
 func TestFormatComparisonCases(t *testing.T) {

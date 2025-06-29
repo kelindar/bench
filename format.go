@@ -5,7 +5,6 @@ package bench
 
 import (
 	"fmt"
-	"math"
 )
 
 // formatComparison formats statistical comparison between two sample sets using BCa bootstrap
@@ -42,14 +41,14 @@ func (r *B) formatComparison(report Report) string {
 	case !report.Significant:
 		return "🟰 similar"
 	case speedup > 1:
-		return fmt.Sprintf("✅ %s", formatChange(change, interval))
+		return fmt.Sprintf("✅ %s", formatChange(change))
 	default:
-		return fmt.Sprintf("❌ %s", formatChange(change, interval))
+		return fmt.Sprintf("❌ %s", formatChange(change))
 	}
 }
 
 // formatChange formats the change in performance
-func formatChange(changePercent float64, interval [2]float64) string {
+func formatChange(changePercent float64) string {
 	var sign string
 	if changePercent > 0 {
 		sign = "+"
@@ -61,21 +60,7 @@ func formatChange(changePercent float64, interval [2]float64) string {
 	case changePercent > 100:
 		return fmt.Sprintf("%+.1fx", 1+changePercent/100)
 	default:
-		return fmt.Sprintf("%s%.0f%% %s", sign, changePercent, formatCI(interval))
-	}
-}
-
-func formatCI(interval [2]float64) string {
-	switch {
-	case math.IsNaN(interval[0]) || math.IsNaN(interval[1]) ||
-		math.IsInf(interval[0], 0) || math.IsInf(interval[1], 0):
-		return ""
-	case math.Abs(interval[1]-interval[0]) > 100:
-		return ""
-	case math.Abs(interval[0]) > 1000 || math.Abs(interval[1]) > 1000:
-		return ""
-	default:
-		return fmt.Sprintf("[%.0f%%,%.0f%%]", interval[0], interval[1])
+		return fmt.Sprintf("%s%.0f%%", sign, changePercent)
 	}
 }
 
