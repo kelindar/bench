@@ -57,9 +57,11 @@ func formatChange(changePercent float64, interval [2]float64) string {
 
 	switch {
 	case changePercent >= 1000:
-		return fmt.Sprintf("+%.0fx", changePercent)
+		factor := 1 + changePercent/100
+		return fmt.Sprintf("%+.0fx", factor)
 	case changePercent > 100:
-		return fmt.Sprintf("+%.1fx", changePercent)
+		factor := 1 + changePercent/100
+		return fmt.Sprintf("%+.1fx", factor)
 	default:
 		return fmt.Sprintf("%s%.0f%% %s", sign, changePercent, formatCI(interval))
 	}
