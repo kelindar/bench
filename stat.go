@@ -206,18 +206,8 @@ func computeBCaCI(bootstrapStats []float64, biasCorrection, acceleration, alpha 
 	alpha2 := dist.CDF(biasCorrection + (biasCorrection+z_1minus_alpha2)/(1.0-acceleration*(biasCorrection+z_1minus_alpha2)))
 
 	// Ensure valid percentiles
-	if alpha1 < 0 {
-		alpha1 = 0
-	}
-	if alpha1 > 1 {
-		alpha1 = 1
-	}
-	if alpha2 < 0 {
-		alpha2 = 0
-	}
-	if alpha2 > 1 {
-		alpha2 = 1
-	}
+	alpha1 = max(0, min(alpha1, 1))
+	alpha2 = max(0, min(alpha2, 1))
 
 	// Get percentiles from sorted bootstrap statistics
 	idx1 := int(math.Floor(alpha1 * n))
