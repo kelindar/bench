@@ -1,9 +1,7 @@
 package bench
 
 import (
-	"flag"
 	"fmt"
-	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -34,33 +32,16 @@ type B struct {
 
 // Run executes benchmarks with the given configuration
 func Run(fn func(*B), opts ...Option) {
-	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
-	prefix := fs.String("bench", "", "Run only benchmarks with this prefix")
-	dry := fs.Bool("n", false, "dry run - do not update bench.json")
-
-	// Parse only our known flags from os.Args
-	args := []string{}
-	for i := 1; i < len(os.Args); i++ {
-		a := os.Args[i]
-		if strings.HasPrefix(a, "-bench") || a == "-bench" || strings.HasPrefix(a, "-n") || a == "-n" {
-			args = append(args, a)
-			if !strings.Contains(a, "=") && i+1 < len(os.Args) {
-				i++
-				args = append(args, os.Args[i])
-			}
-		}
-	}
-	_ = fs.Parse(args)
-
 	cfg := config{
 		filename: DefaultFilename,
 		samples:  DefaultSamples,
 		duration: DefaultDuration,
 		tableFmt: DefaultTableFmt,
-		filter:   *prefix,
-		dryRun:   *dry,
 		codec:    jsonCodec{},
 	}
+
+	// Apply flags first so user options can override
+	initFlags(&cfg)
 
 	for _, opt := range opts {
 		opt(&cfg)

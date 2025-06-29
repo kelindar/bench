@@ -1,6 +1,8 @@
 package bench
 
 import (
+	"flag"
+	"os"
 	"strings"
 	"time"
 )
@@ -66,4 +68,29 @@ func WithDryRun() Option {
 	return func(c *config) {
 		c.dryRun = true
 	}
+}
+
+// initFlags parses command-line flags and applies them to the config. It
+// recognizes "-bench" to filter benchmarks by prefix and "-n" for dry runs.
+func initFlags(c *config) {
+	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	prefix := fs.String("bench", "", "Run only benchmarks with this prefix")
+	dry := fs.Bool("n", false, "dry run - do not update bench.json")
+
+	// Parse only the flags we care about from os.Args
+	args := []string{}
+	for i := 1; i < len(os.Args); i++ {
+		a := os.Args[i]
+		if strings.HasPrefix(a, "-bench") || a == "-bench" || strings.HasPrefix(a, "-n") || a == "-n" {
+			args = append(args, a)
+			if !strings.Contains(a, "=") && i+1 < len(os.Args) {
+				i++
+				args = append(args, os.Args[i])
+			}
+		}
+	}
+	_ = fs.Parse(args)
+
+	c.filter = *prefix
+	c.dryRun = *dry
 }
