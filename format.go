@@ -9,53 +9,25 @@ import (
 )
 
 // formatComparison formats statistical comparison between two sample sets using BCa bootstrap
-func (r *B) formatComparison(ourSamples, otherSamples []float64) string {
-	if len(otherSamples) == 0 {
-		return "new"
+func (r *B) formatComparison(report Report) string {
+	switch {
+	case report.MeanControl == 0 || report.MeanVariant == 0:
+		return "🟰 similar" // A infinite or invalid ratios
+	case report.MeanVariant > 1000*report.MeanControl || report.MeanVariant < 0.001*report.MeanControl:
+		return "🟰 similar" // Avoid reporting massive differences
 	}
 
-	ourMean := 0.0
-	for _, v := range ourSamples {
-		ourMean += v
-	}
-	ourMean /= float64(len(ourSamples))
-
-	otherMean := 0.0
-	for _, v := range otherSamples {
-		otherMean += v
-	}
-	otherMean /= float64(len(otherSamples))
-
-	// Handle edge cases more robustly
-	if otherMean == 0 || ourMean == 0 {
-		return "🟰 similar" // Conservative: avoid infinite or invalid ratios
-	}
-
-	// Check for unreasonable performance differences (likely measurement error)
-	ratio := ourMean / otherMean
-	if ratio > 1000 || ratio < 0.001 {
-		return "🟰 similar" // Conservative: avoid reporting massive differences
-	}
-
-	// Perform BCa bootstrap with 10,000 samples
-	bootstrapResult := bca(otherSamples, ourSamples, r.confidence/100.0, 10000)
-
-	speedup := otherMean / ourMean
+	speedup := report.MeanControl / report.MeanVariant
 	change := (speedup - 1) * 100
 
 	// Convert delta confidence interval to percentage bounds correctly
-	// If delta CI is [lowerCI, upperCI] in absolute units,
-	// convert to percentage changes relative to baseline
 	var interval [2]float64
-	if otherMean != 0 {
-		// Calculate percentage change for each CI bound
-		// Lower bound: what % change if the true difference is lowerCI
-		// Upper bound: what % change if the true difference is upperCI
-		if (otherMean - bootstrapResult.LowerCI) != 0 {
-			interval[0] = (otherMean/(otherMean-bootstrapResult.LowerCI) - 1) * 100
+	if report.MeanControl != 0 {
+		if (report.MeanControl - report.CI[0]) != 0 {
+			interval[0] = (report.MeanControl/(report.MeanControl-report.CI[0]) - 1) * 100
 		}
-		if (otherMean - bootstrapResult.UpperCI) != 0 {
-			interval[1] = (otherMean/(otherMean-bootstrapResult.UpperCI) - 1) * 100
+		if (report.MeanControl - report.CI[1]) != 0 {
+			interval[1] = (report.MeanControl/(report.MeanControl-report.CI[1]) - 1) * 100
 		}
 
 		// Ensure interval is ordered correctly (lower <= upper)
@@ -65,7 +37,7 @@ func (r *B) formatComparison(ourSamples, otherSamples []float64) string {
 	}
 
 	switch {
-	case !bootstrapResult.Significant:
+	case !report.Significant:
 		return "🟰 similar"
 	case speedup > 1:
 		return fmt.Sprintf("✅ %s", formatChange(change, interval))

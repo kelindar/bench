@@ -20,7 +20,7 @@ func TestBCaBootstrapBasic(t *testing.T) {
 
 	// Basic validation
 	assert.True(t, result.Delta < 0, "Expected negative delta (experiment faster)")
-	assert.True(t, result.LowerCI < result.UpperCI, "Lower CI should be less than upper CI")
+	assert.True(t, result.CI[0] < result.CI[1], "Lower CI should be less than upper CI")
 	assert.Equal(t, 0.95, result.Confidence, "Confidence level should match")
 	assert.Equal(t, 1000, result.Samples, "Bootstrap samples should match")
 	assert.True(t, result.Significant, "Should be significant with clear difference")
@@ -35,8 +35,8 @@ func TestBCaBootstrapIdentical(t *testing.T) {
 
 	assert.False(t, result.Significant, "Identical data should not be significant")
 	assert.InDelta(t, 0.0, result.Delta, 0.001, "Delta should be near zero for identical data")
-	assert.True(t, result.LowerCI <= 0.0, "Lower CI should be <= 0")
-	assert.True(t, result.UpperCI >= 0.0, "Upper CI should be >= 0")
+	assert.True(t, result.CI[0] <= 0.0, "Lower CI should be <= 0")
+	assert.True(t, result.CI[1] >= 0.0, "Upper CI should be >= 0")
 }
 
 func TestBCaBootstrapSmallDifference(t *testing.T) {
@@ -49,7 +49,7 @@ func TestBCaBootstrapSmallDifference(t *testing.T) {
 	result := bca(control, experiment, 0.95, 1000)
 
 	// Should have reasonable CI bounds
-	assert.True(t, result.LowerCI < result.UpperCI, "Lower CI should be less than upper CI")
+	assert.True(t, result.CI[0] < result.CI[1], "Lower CI should be less than upper CI")
 	assert.InDelta(t, 0.05, result.Delta, 0.1, "Delta should be around 0.05")
 }
 
@@ -58,10 +58,10 @@ func TestBCaBootstrapEdgeCases(t *testing.T) {
 
 	// Test with empty slices
 	result := bca([]float64{}, []float64{1.0}, 0.95, 100)
-	assert.Equal(t, bootstrap{}, result, "Should return empty result for empty control")
+	assert.Equal(t, Report{}, result, "Should return empty result for empty control")
 
 	result = bca([]float64{1.0}, []float64{}, 0.95, 100)
-	assert.Equal(t, bootstrap{}, result, "Should return empty result for empty experiment")
+	assert.Equal(t, Report{}, result, "Should return empty result for empty experiment")
 
 	// Test with single values
 	result = bca([]float64{5.0}, []float64{10.0}, 0.95, 100)

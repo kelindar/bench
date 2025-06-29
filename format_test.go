@@ -22,11 +22,3 @@ func TestFormatHelpers(t *testing.T) {
 	assert.Contains(t, formatOps(2e3), "K")
 	assert.Equal(t, "2", formatOps(2))
 }
-
-func TestFormatComparisonEdgeCases(t *testing.T) {
-	b := &B{config: config{confidence: 95.0}}
-	// No previous samples
-	assert.Equal(t, "new", b.formatComparison([]float64{1, 2, 3}, nil))
-	// Zero mean in reference - now conservative, returns "similar"
-	assert.Equal(t, "🟰 similar", b.formatComparison([]float64{1, 2, 3}, []float64{0, 0, 0}))
-}

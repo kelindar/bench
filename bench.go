@@ -19,6 +19,7 @@ const (
 	DefaultTableFmt   = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
 	DefaultFilename   = "bench.gob"
 	DefaultConfidence = 99.9
+	boostramSamples   = 10000
 )
 
 // Result represents a single benchmark result
@@ -157,14 +158,16 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) {
 	prevResult, exists := prevResults[name]
 	delta := "new"
 	if exists {
-		delta = r.formatComparison(ourSamples, prevResult.Samples)
+		report := bca(prevResult.Samples, ourSamples, r.confidence/100.0, boostramSamples)
+		delta = r.formatComparison(report)
 	}
 
 	// Calculate vs reference if provided
 	vsRef := ""
 	if refFn != nil {
 		refSamples, _ := r.benchmark(refFn)
-		vsRef = r.formatComparison(ourSamples, refSamples)
+		report := bca(refSamples, ourSamples, r.confidence/100.0, boostramSamples)
+		vsRef = r.formatComparison(report)
 	}
 
 	// Format and display result

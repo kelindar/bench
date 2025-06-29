@@ -12,44 +12,46 @@ import (
 	"gonum.org/v1/gonum/stat/distuv"
 )
 
-// bootstrap represents the result of BCa bootstrap inference
-type bootstrap struct {
-	Delta       float64 // Delta is the difference between the means (new - old)
-	LowerCI     float64 // LowerCI is the lower bound of the confidence interval
-	UpperCI     float64 // UpperCI is the upper bound of the confidence interval
-	Confidence  float64 // Confidence is the confidence level (e.g., 0.95 for 95%)
-	Significant bool    // Significant indicates if the confidence interval excludes zero
-	Samples     int     // Samples is the number of bootstrap samples used
+// Report represents the result of BCa Report inference
+type Report struct {
+	Delta       float64    // Delta is the difference between the means (new - old)
+	CI          [2]float64 // Interval is the confidence interval
+	MeanControl float64    // MeanControl is the mean of the control group
+	MeanVariant float64    // MeanVariant is the mean of the variant group
+	Confidence  float64    // Confidence is the confidence level (e.g., 0.95 for 95%)
+	Significant bool       // Significant indicates if the confidence interval excludes zero
+	Samples     int        // Samples is the number of bootstrap samples used
 }
 
 // bca performs BCa (Bias-Corrected accelerated) bootstrap inference
 // comparing two samples. Returns confidence interval for the difference in means.
-func bca(control, experiment []float64, confidence float64, bootstrapSamples int) bootstrap {
+func bca(control, experiment []float64, confidence float64, bootstrapSamples int) Report {
 	if len(control) == 0 || len(experiment) == 0 {
-		return bootstrap{}
+		return Report{}
 	}
 
 	// Use more stable seeding based on sample statistics rather than raw values
 	// This reduces sensitivity to measurement noise
-	controlMean := stat.Mean(control, nil)
-	experimentMean := stat.Mean(experiment, nil)
-	seed := uint64(math.Float64bits(controlMean) ^ math.Float64bits(experimentMean))
+	meanControl := stat.Mean(control, nil)
+	meanVariant := stat.Mean(experiment, nil)
+	seed := uint64(math.Float64bits(meanControl) ^ math.Float64bits(meanVariant))
 	rng := rand.New(rand.NewPCG(seed, seed+1))
 
 	// Original statistic (difference in means)
-	originalDelta := experimentMean - controlMean
+	originalDelta := meanVariant - meanControl
 
 	// Step 1: Bootstrap resampling
 	bootstrapDeltas := make([]float64, bootstrapSamples)
 	for i := 0; i < bootstrapSamples; i++ {
+
 		// Resample with replacement using our seeded RNG
 		controlBootstrap := resampleWithReplacement(control, rng)
-		experimentBootstrap := resampleWithReplacement(experiment, rng)
+		variantBootstrap := resampleWithReplacement(experiment, rng)
 
 		// Compute statistic for this bootstrap sample
 		controlBootMean := stat.Mean(controlBootstrap, nil)
-		experimentBootMean := stat.Mean(experimentBootstrap, nil)
-		bootstrapDeltas[i] = experimentBootMean - controlBootMean
+		variantBootMean := stat.Mean(variantBootstrap, nil)
+		bootstrapDeltas[i] = variantBootMean - controlBootMean
 	}
 
 	// Step 2: Compute bias-correction parameter (z₀)
@@ -63,12 +65,13 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 	lowerCI, upperCI := computeBCaCI(bootstrapDeltas, biasCorrection, acceleration, alpha)
 
 	// Step 5: More conservative significance detection
-	significant := isSignificant(lowerCI, upperCI, originalDelta, controlMean, experimentMean)
+	significant := isSignificant(lowerCI, upperCI, originalDelta, meanControl, meanVariant)
 
-	return bootstrap{
+	return Report{
 		Delta:       originalDelta,
-		LowerCI:     lowerCI,
-		UpperCI:     upperCI,
+		CI:          [2]float64{lowerCI, upperCI},
+		MeanControl: meanControl,
+		MeanVariant: meanVariant,
 		Confidence:  confidence,
 		Significant: significant,
 		Samples:     bootstrapSamples,

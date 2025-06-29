@@ -82,7 +82,7 @@ func TestBCaBootstrap(t *testing.T) {
 
 	// Check that we get reasonable results
 	assert.True(t, result.Delta < 0, "Expected negative delta (experiment faster)")
-	assert.True(t, result.LowerCI < result.UpperCI, "Lower CI should be less than upper CI")
+	assert.True(t, result.CI[0] < result.CI[1], "Lower CI should be less than upper CI")
 	assert.Equal(t, 0.95, result.Confidence, "Confidence level should match")
 	assert.Equal(t, 1000, result.Samples, "Bootstrap samples should match")
 

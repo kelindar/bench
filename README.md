@@ -10,14 +10,14 @@
 
 ## Bench: Statistical Benchmarking for Go
 
-A **lightweight, statistical benchmarking library** for Go, designed for robust, repeatable, and insightful performance analysis using state-of-the-art BCa bootstrap inference. Bench makes it easy to:
+A **small, statistical benchmarking library** for Go, designed for robust, repeatable, and insightful performance analysis using state-of-the-art BCa bootstrap inference. 
 
-- **Analyze performance** with BCa (Bias-Corrected accelerated) bootstrap for rigorous statistical significance
+- **Analyze performance** with BCa (Bias-Corrected and Accelerated) bootstrap for rigorous statistical significance
 - **Persist results** incrementally in Gob format for resilience and tracking
 - **Compare runs** and reference implementations with confidence intervals
 - **Format output** in clean, customizable tables
-- **Filter benchmarks** by name prefix for focused runs
-- **Configure sampling** for precise control
+- **Configurable** thresholds, sampling and other options for precise control
+
 
 **Use When**
 
@@ -32,6 +32,20 @@ A **lightweight, statistical benchmarking library** for Go, designed for robust,
 * ❌ Micro-benchmarks where Go's built-in `testing.B` is sufficient
 * ❌ Long-term, distributed, or multi-process benchmarking
 * ❌ Profiling memory/cpu in detail (use pprof for that)
+
+
+We use **BCa (Bias-Corrected accelerated) bootstrap inference** for all statistical comparisons:
+
+- **Non-parametric method** using 10,000 bootstrap resamples by default
+- **Bias-corrected and accelerated** confidence intervals
+- **State-of-the-art method** used in recent benchmarking literature
+- **Publication-quality results** suitable for rigorous analysis
+
+### Why BCa Bootstrap?
+
+Bench applies the **bias-corrected and accelerated** (BCa) bootstrap to every set of timings. It shuffles the raw measurements **10 000 times** (by default), then adjusts the percentile endpoints with the bias and the acceleration. BCa is non-parametric and enjoys second-order accuracy, so its confidence interval keeps nominal coverage without assuming any particular distribution and stays stable in the presence of moderate skew. 
+
+However, good practice is **25+ independent timings**; smaller n inflates the acceleration estimate and can widen intervals. Similarly, very heavy-tailed timing data can erode coverage and may need trimming or more samples.
 
 ### Example Output
 
@@ -83,35 +97,9 @@ The benchmark runner can be customized with a set of option functions. The table
 | `WithFilter` | Runs only the benchmarks whose names start with the provided prefix. This is handy when your suite has many benchmarks and you only want to focus on a subset without changing your code. |
 | `WithSamples` | Sets how many samples should be collected for each benchmark. More samples give more stable statistics but also make the run take longer, so adjust the number depending on how precise you need the measurements to be. |
 | `WithDuration` | Controls how long each sample runs. Increase the duration when the code under test is very fast or when you want less variation between runs. |
-| `WithReference` | Enables the reference comparison column in the output. Provide a reference implementation when calling `b.Run` and Bench will show how your code performs against that reference, making regressions easy to spot. |
-| `WithDryRun` | Prevents the library from writing results to disk. This option is useful for quick experiments or CI jobs where you just want to see the formatted output without updating any files. |
-| `WithConfidence` | Sets the confidence level for the bootstrap confidence intervals (default 99.9%). Use 95.0 for 95% confidence intervals, which is common in many fields. |
+| `WithReference` | Enables the reference comparison column in the output. Provide a reference implementation when calling `b.Run`
 
-## Statistical Method: BCa Bootstrap
 
-Bench uses **BCa (Bias-Corrected accelerated) bootstrap inference** for all statistical comparisons:
-
-- **Non-parametric method** using 10,000 bootstrap resamples by default
-- **Bias-corrected and accelerated** confidence intervals
-- **State-of-the-art method** used in recent benchmarking literature
-- **Publication-quality results** suitable for rigorous analysis
-- Shows results like `✅ +15% (CI: +8% to +23%)`
-- **Significant if confidence interval excludes 0**
-
-**Why BCa Bootstrap:**
-- ✅ No assumptions about data distribution (works with any performance data)
-- ✅ Provides intuitive confidence intervals instead of p-values
-- ✅ Handles small or unequal sample sizes gracefully
-- ✅ Automatically corrects for bias and skewness in the data
-- ✅ Recommended by modern statistical literature for benchmarking
-
-**Example:**
-```go
-bench.Run(func(b *bench.B) {
-    b.Run("algorithm_v1", func(i int) { /* implementation */ })
-    b.Run("algorithm_v2", func(i int) { /* implementation */ })
-}, bench.WithConfidence(95.0)) // 95% confidence intervals
-```
 
 ## About
 
