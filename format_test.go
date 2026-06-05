@@ -64,4 +64,7 @@ func TestCompareAllocs(t *testing.T) {
 	assert.Equal(t, allocSame, compareAllocs([]float64{1, 1, 1}, []float64{1, 1, 1}))
 	assert.Equal(t, allocBetter, compareAllocs([]float64{2, 2, 2}, []float64{1, 1, 1}))
 	assert.Equal(t, allocWorse, compareAllocs([]float64{1, 1, 1}, []float64{2, 2, 2}))
+
+	// Float medians can differ while the displayed alloc count stays the same.
+	assert.Equal(t, allocSame, compareAllocs([]float64{35.8, 36.2}, []float64{36.1, 35.9}))
 }

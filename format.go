@@ -115,17 +115,24 @@ func formatAllocsWithChange(allocsPerOp float64, change allocChange) string {
 	}
 }
 
+func allocIntValue(allocsPerOp float64) int64 {
+	if allocsPerOp < 1 {
+		return 0
+	}
+	return int64(math.Round(allocsPerOp))
+}
+
 func compareAllocs(previous, current []float64) allocChange {
 	if len(previous) == 0 || len(current) == 0 {
 		return allocUnknown
 	}
 
-	prevMedian := median(previous)
-	currMedian := median(current)
+	prev := allocIntValue(median(previous))
+	curr := allocIntValue(median(current))
 	switch {
-	case math.Abs(currMedian-prevMedian) <= 1e-9:
+	case curr == prev:
 		return allocSame
-	case currMedian < prevMedian:
+	case curr < prev:
 		return allocBetter
 	default:
 		return allocWorse
