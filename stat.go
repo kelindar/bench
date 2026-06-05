@@ -21,18 +21,24 @@ type Report struct {
 	MedianVariant float64    // MedianVariant is the median of the variant group
 	Confidence    float64    // Confidence is the confidence level (e.g., 0.95 for 95%)
 	Significant   bool       // Significant indicates statistical and practical significance
+	Degenerate    bool       // Degenerate indicates a bootstrap distribution without variation
 	Samples       int        // Samples is the number of bootstrap samples used
 }
 
 // bca performs BCa (Bias-Corrected accelerated) bootstrap inference comparing
 // two samples. The test statistic is the log median time ratio.
 func bca(control, experiment []float64, confidence float64, bootstrapSamples int, minChangePercent float64) Report {
+	return bcaWithSeed(control, experiment, confidence, bootstrapSamples, minChangePercent, 0)
+}
+
+func bcaWithSeed(control, experiment []float64, confidence float64, bootstrapSamples int, minChangePercent float64, seed uint64) Report {
 	if len(control) == 0 || len(experiment) == 0 {
 		return Report{}
 	}
 	if bootstrapSamples <= 0 {
 		return Report{}
 	}
+	confidence = normalizeConfidence(confidence)
 
 	medianControl := median(control)
 	medianVariant := median(experiment)
@@ -45,7 +51,7 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 			Samples:       bootstrapSamples,
 		}
 	}
-	rng := bootstrapRNG(len(control), len(experiment), bootstrapSamples)
+	rng := bootstrapRNG(len(control), len(experiment), bootstrapSamples, seed)
 
 	bootstrapStats := make([]float64, 0, bootstrapSamples)
 	for i := 0; i < bootstrapSamples; i++ {
@@ -68,6 +74,7 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 			MedianControl: medianControl,
 			MedianVariant: medianVariant,
 			Confidence:    confidence,
+			Degenerate:    true,
 			Samples:       bootstrapSamples,
 		}
 	}
@@ -75,13 +82,14 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 	biasCorrection := computeBiasCorrection(originalLogRatio, bootstrapStats)
 
 	acceleration := computeAcceleration(control, experiment)
+	degenerate := degenerateBootstrap(bootstrapStats)
 
 	// Step 4: Compute BCa confidence interval
 	alpha := 1.0 - confidence
 	lowerCI, upperCI := computeBCaCI(bootstrapStats, biasCorrection, acceleration, alpha)
 
 	// Step 5: More conservative significance detection
-	significant := isSignificant(lowerCI, upperCI, originalLogRatio, minChangePercent)
+	significant := !degenerate && isSignificant(lowerCI, upperCI, originalLogRatio, minChangePercent)
 
 	return Report{
 		Delta:         originalLogRatio,
@@ -92,13 +100,16 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 		MedianVariant: medianVariant,
 		Confidence:    confidence,
 		Significant:   significant,
+		Degenerate:    degenerate,
 		Samples:       len(bootstrapStats),
 	}
 }
 
-func bootstrapRNG(controlSamples, experimentSamples, bootstrapSamples int) *rand.Rand {
+func bootstrapRNG(controlSamples, experimentSamples, bootstrapSamples int, seed uint64) *rand.Rand {
 	seed1 := uint64(controlSamples)<<32 ^ uint64(experimentSamples)<<16 ^ uint64(bootstrapSamples) ^ 0x9e3779b97f4a7c15
 	seed2 := uint64(experimentSamples)<<32 ^ uint64(controlSamples)<<16 ^ uint64(bootstrapSamples) ^ 0xbf58476d1ce4e5b9
+	seed1 ^= seed
+	seed2 ^= seed<<1 | seed>>63
 	return rand.New(rand.NewPCG(seed1, seed2))
 }
 
@@ -186,7 +197,7 @@ func computeBiasCorrection(originalStat float64, bootstrapStats []float64) float
 	return dist.Quantile(proportion)
 }
 
-// computeAcceleration computes the acceleration parameter using jackknife.
+// computeAcceleration computes the multi-sample BCa acceleration parameter using jackknife.
 func computeAcceleration(control, experiment []float64) float64 {
 	n1, n2 := len(control), len(experiment)
 	if n1 < 2 || n2 < 2 {
@@ -199,60 +210,40 @@ func computeAcceleration(control, experiment []float64) float64 {
 		return 0
 	}
 
-	// Jackknife estimates for control group
 	controlJack := make([]float64, n1)
 	for i := 0; i < n1; i++ {
-		// Create jackknife sample (all except i-th element)
 		jackSample := make([]float64, 0, n1-1)
 		for j := 0; j < n1; j++ {
 			if j != i {
 				jackSample = append(jackSample, control[j])
 			}
 		}
-		controlJack[i] = medianInPlace(jackSample)
+		stat, ok := logRatio(medianInPlace(jackSample), experimentMedian)
+		if !ok {
+			return 0
+		}
+		controlJack[i] = stat
 	}
 
-	// Jackknife estimates for experiment group
 	experimentJack := make([]float64, n2)
 	for i := 0; i < n2; i++ {
-		// Create jackknife sample (all except i-th element)
 		jackSample := make([]float64, 0, n2-1)
 		for j := 0; j < n2; j++ {
 			if j != i {
 				jackSample = append(jackSample, experiment[j])
 			}
 		}
-		experimentJack[i] = medianInPlace(jackSample)
-	}
-
-	// Compute jackknife differences
-	jackDiffs := make([]float64, n1+n2)
-	for i := 0; i < n1; i++ {
-		stat, ok := logRatio(controlJack[i], experimentMedian)
+		stat, ok := logRatio(controlMedian, medianInPlace(jackSample))
 		if !ok {
 			return 0
 		}
-		jackDiffs[i] = stat
-	}
-	for i := 0; i < n2; i++ {
-		stat, ok := logRatio(controlMedian, experimentJack[i])
-		if !ok {
-			return 0
-		}
-		jackDiffs[n1+i] = stat
+		experimentJack[i] = stat
 	}
 
-	// Compute acceleration parameter
-	jackMean := mean(jackDiffs)
-
-	sumCubed := 0.0
-	sumSquared := 0.0
-	for _, diff := range jackDiffs {
-		dev := jackMean - diff
-		sumCubed += dev * dev * dev
-		sumSquared += dev * dev
-	}
-
+	sumCubedControl, sumSquaredControl := accelerationTerms(controlJack)
+	sumCubedExperiment, sumSquaredExperiment := accelerationTerms(experimentJack)
+	sumCubed := sumCubedControl + sumCubedExperiment
+	sumSquared := sumSquaredControl + sumSquaredExperiment
 	if sumSquared == 0 {
 		return 0
 	}
@@ -263,6 +254,18 @@ func computeAcceleration(control, experiment []float64) float64 {
 	}
 
 	return acceleration
+}
+
+func accelerationTerms(jackStats []float64) (sumCubed, sumSquared float64) {
+	n := float64(len(jackStats))
+	jackMean := mean(jackStats)
+	for _, stat := range jackStats {
+		u := (n - 1) * (jackMean - stat)
+		sumCubed += u * u * u
+		sumSquared += u * u
+	}
+
+	return sumCubed / (n * n * n), sumSquared / (n * n)
 }
 
 // computeBCaCI computes the BCa confidence interval
@@ -347,6 +350,29 @@ func mean(data []float64) float64 {
 
 func isFinite(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+func degenerateBootstrap(stats []float64) bool {
+	if len(stats) == 0 {
+		return true
+	}
+
+	first := stats[0]
+	for _, stat := range stats[1:] {
+		if stat != first {
+			return false
+		}
+	}
+
+	return true
+}
+
+func normalizeConfidence(confidence float64) float64 {
+	if !isFinite(confidence) || confidence <= 0 || confidence >= 1 {
+		return defaultConfidence / 100.0
+	}
+
+	return confidence
 }
 
 func logRatio(control, experiment float64) (float64, bool) {

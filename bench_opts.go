@@ -26,7 +26,39 @@ type config struct {
 	confidence float64
 	threshold  float64
 	bootstrap  int
+	seed       uint64
 	codec      codec
+}
+
+func (c *config) normalize() {
+	if c.filename == "" {
+		c.filename = defaultFilename
+	}
+	if c.samples < minSamples {
+		c.samples = minSamples
+	}
+	if c.duration <= 0 {
+		c.duration = defaultDuration
+	}
+	if c.tableFmt == "" {
+		c.tableFmt = defaultTableFmt
+	}
+	if !isFinite(c.confidence) || c.confidence <= 0 || c.confidence >= 100 {
+		c.confidence = defaultConfidence
+	}
+	if !isFinite(c.threshold) || c.threshold < 0 {
+		c.threshold = 0
+	}
+	if c.bootstrap <= 0 {
+		c.bootstrap = defaultBootstrap
+	}
+	if c.codec == nil {
+		if strings.HasSuffix(c.filename, ".gob") {
+			c.codec = gobCodec{}
+		} else {
+			c.codec = jsonCodec{}
+		}
+	}
 }
 
 // WithFile sets the filename for benchmark results
@@ -51,6 +83,9 @@ func WithFilter(prefix string) Option {
 // WithSamples sets the number of samples to collect per benchmark
 func WithSamples(n int) Option {
 	return func(c *config) {
+		if n < minSamples {
+			n = minSamples
+		}
 		c.samples = n
 	}
 }
@@ -58,6 +93,9 @@ func WithSamples(n int) Option {
 // WithDuration sets the duration for each sample
 func WithDuration(d time.Duration) Option {
 	return func(c *config) {
+		if d <= 0 {
+			d = defaultDuration
+		}
 		c.duration = d
 	}
 }
@@ -79,6 +117,9 @@ func WithDryRun() Option {
 // WithConfidence sets the confidence level for statistical significance tests
 func WithConfidence(level float64) Option {
 	return func(c *config) {
+		if !isFinite(level) || level <= 0 || level >= 100 {
+			level = defaultConfidence
+		}
 		c.confidence = level
 	}
 }
@@ -87,6 +128,9 @@ func WithConfidence(level float64) Option {
 // a statistically significant interval is reported as an improvement/regression.
 func WithThreshold(percent float64) Option {
 	return func(c *config) {
+		if !isFinite(percent) || percent < 0 {
+			percent = 0
+		}
 		c.threshold = percent
 	}
 }
@@ -94,9 +138,17 @@ func WithThreshold(percent float64) Option {
 // WithBootstrap sets the number of bootstrap resamples used for comparisons.
 func WithBootstrap(n int) Option {
 	return func(c *config) {
-		if n > 0 {
-			c.bootstrap = n
+		if n <= 0 {
+			n = defaultBootstrap
 		}
+		c.bootstrap = n
+	}
+}
+
+// WithSeed sets an additional seed mixed into the deterministic bootstrap RNG.
+func WithSeed(seed uint64) Option {
+	return func(c *config) {
+		c.seed = seed
 	}
 }
 

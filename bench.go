@@ -13,6 +13,7 @@ import (
 
 const (
 	// Default sampling configuration
+	minSamples        = 2
 	defaultSamples    = 100
 	defaultDuration   = 10 * time.Millisecond
 	defaultTableFmt   = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
@@ -21,6 +22,19 @@ const (
 	defaultThreshold  = 5.0
 	defaultBootstrap  = 100000
 )
+
+func defaultConfig() config {
+	return config{
+		filename:   defaultFilename,
+		samples:    defaultSamples,
+		duration:   defaultDuration,
+		tableFmt:   defaultTableFmt,
+		confidence: defaultConfidence,
+		threshold:  defaultThreshold,
+		bootstrap:  defaultBootstrap,
+		codec:      gobCodec{},
+	}
+}
 
 // Result represents a single benchmark result
 type Result struct {
@@ -38,16 +52,7 @@ type B struct {
 
 // Run executes benchmarks with the given configuration
 func Run(fn func(*B), opts ...Option) {
-	cfg := config{
-		filename:   defaultFilename,
-		samples:    defaultSamples,
-		duration:   defaultDuration,
-		tableFmt:   defaultTableFmt,
-		confidence: defaultConfidence,
-		threshold:  defaultThreshold,
-		bootstrap:  defaultBootstrap,
-		codec:      gobCodec{},
-	}
+	cfg := defaultConfig()
 
 	// Apply flags first so user options can override
 	initFlags(&cfg)
@@ -55,6 +60,7 @@ func Run(fn func(*B), opts ...Option) {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	cfg.normalize()
 
 	runner := &B{config: cfg}
 	runner.printHeader()
@@ -86,29 +92,72 @@ func (r *B) benchmark(fn func(op int) int) (timing []float64, allocs []float64) 
 	allocs = make([]float64, 0, r.samples)
 
 	for i := 0; i < r.samples; i++ {
-		// Force GC to get clean allocation measurements
-		runtime.GC()
-		runtime.GC()
-
-		var m1, m2 runtime.MemStats
-		runtime.ReadMemStats(&m1)
-
-		start := time.Now()
-		ops := 0
-		for time.Since(start) < r.duration {
-			ops += fn(ops)
-		}
-		elapsed := time.Since(start)
-
-		runtime.ReadMemStats(&m2)
-
-		nsPerOp := float64(elapsed.Nanoseconds()) / float64(ops)
-		allocsPerOp := float64(m2.Mallocs-m1.Mallocs) / float64(ops)
-
+		nsPerOp, allocsPerOp := r.sample(fn)
 		timing = append(timing, nsPerOp)
 		allocs = append(allocs, allocsPerOp)
 	}
 	return timing, allocs
+}
+
+func (r *B) benchmarkPair(ourFn, refFn func(op int) int) (ourTiming, ourAllocs, refTiming, refAllocs []float64) {
+	ourTiming = make([]float64, 0, r.samples)
+	ourAllocs = make([]float64, 0, r.samples)
+	refTiming = make([]float64, 0, r.samples)
+	refAllocs = make([]float64, 0, r.samples)
+
+	for i := 0; i < r.samples; i++ {
+		var ourNS, ourAlloc, refNS, refAlloc float64
+		if i%2 == 0 {
+			ourNS, ourAlloc = r.sample(ourFn)
+			refNS, refAlloc = r.sample(refFn)
+		} else {
+			refNS, refAlloc = r.sample(refFn)
+			ourNS, ourAlloc = r.sample(ourFn)
+		}
+
+		ourTiming = append(ourTiming, ourNS)
+		ourAllocs = append(ourAllocs, ourAlloc)
+		refTiming = append(refTiming, refNS)
+		refAllocs = append(refAllocs, refAlloc)
+	}
+	return ourTiming, ourAllocs, refTiming, refAllocs
+}
+
+func (r *B) sample(fn func(op int) int) (nsPerOp, allocsPerOp float64) {
+	// Force GC to get clean allocation measurements.
+	runtime.GC()
+	runtime.GC()
+
+	var m1, m2 runtime.MemStats
+	runtime.ReadMemStats(&m1)
+
+	start := time.Now()
+	ops := 0
+	for {
+		ops = addOps(ops, fn(ops))
+		if time.Since(start) >= r.duration {
+			break
+		}
+	}
+	elapsed := time.Since(start)
+
+	runtime.ReadMemStats(&m2)
+
+	return float64(elapsed.Nanoseconds()) / float64(ops),
+		float64(m2.Mallocs-m1.Mallocs) / float64(ops)
+}
+
+func addOps(total, n int) int {
+	if n <= 0 {
+		panic("bench: RunN function must return a positive operation count")
+	}
+
+	maxInt := int(^uint(0) >> 1)
+	if n > maxInt-total {
+		panic("bench: RunN operation count overflow")
+	}
+
+	return total + n
 }
 
 // Run executes a benchmark with optional reference comparison
@@ -141,8 +190,12 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	// Load previous results for delta comparison
 	prevResults := r.loadResults()
 
-	// Benchmark our implementation
-	ourSamples, ourAllocs := r.benchmark(ourFn)
+	var ourSamples, ourAllocs, refSamples []float64
+	if refFn != nil {
+		ourSamples, ourAllocs, refSamples, _ = r.benchmarkPair(ourFn, refFn)
+	} else {
+		ourSamples, ourAllocs = r.benchmark(ourFn)
+	}
 	nsPerOp := median(ourSamples)
 	opsPerSec := 1e9 / nsPerOp
 
@@ -162,7 +215,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	vsPrev := "new"
 	allocsChange := allocUnknown
 	if exists {
-		report = bca(prevResult.Samples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold)
+		report = bcaWithSeed(prevResult.Samples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold, r.seed)
 		vsPrev = r.formatComparison(report)
 		allocsChange = compareAllocs(prevResult.Allocs, ourAllocs)
 		if r.t != nil && report.Significant && report.Delta > 0 {
@@ -173,8 +226,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	// Calculate vs reference if provided
 	vsRef := ""
 	if refFn != nil {
-		refSamples, _ := r.benchmark(refFn)
-		report := bca(refSamples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold)
+		report := bcaWithSeed(refSamples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold, r.seed)
 		vsRef = r.formatComparison(report)
 	}
 
@@ -200,22 +252,14 @@ func Assert(t testing.TB, fn func(*B), opts ...Option) {
 		t.Skip("skipping benchmark assertion in short mode")
 	}
 
-	cfg := config{
-		filename:   defaultFilename,
-		samples:    defaultSamples,
-		duration:   defaultDuration,
-		tableFmt:   defaultTableFmt,
-		confidence: defaultConfidence,
-		threshold:  defaultThreshold,
-		bootstrap:  defaultBootstrap,
-		codec:      gobCodec{},
-		dryRun:     true,
-	}
+	cfg := defaultConfig()
+	cfg.dryRun = true
 
 	initFlags(&cfg)
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	cfg.normalize()
 
 	runner := &B{config: cfg, t: t}
 	runner.printHeader()
