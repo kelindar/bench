@@ -5,46 +5,48 @@ package bench
 
 import (
 	"fmt"
+	"math"
+)
+
+type allocChange int
+
+const (
+	allocUnknown allocChange = iota
+	allocSame
+	allocBetter
+	allocWorse
 )
 
 // formatComparison formats statistical comparison between two sample sets using BCa bootstrap
 func (r *B) formatComparison(report Report) string {
+	ratio := report.Ratio
+	if ratio == 0 && report.MedianControl > 0 && report.MedianVariant > 0 {
+		ratio = report.MedianVariant / report.MedianControl
+	}
+
 	switch {
-	case report.MedianControl == 0 || report.MedianVariant == 0:
+	case report.MedianControl <= 0 || report.MedianVariant <= 0 || ratio <= 0:
 		return "🟰 similar" // A infinite or invalid ratios
-	case report.Significant && report.MedianVariant > 1000*report.MedianControl:
+	case report.Significant && ratio > 1000:
 		return "❌ uncomparable"
-	case report.Significant && report.MedianVariant < 0.001*report.MedianControl:
+	case report.Significant && ratio < 0.001:
 		return "✅ uncomparable"
 	}
 
-	speedup := report.MedianControl / report.MedianVariant
-	change := (speedup - 1) * 100
-
-	// Convert delta confidence interval to percentage bounds correctly
-	var interval [2]float64
-	if report.MedianControl != 0 {
-		if (report.MedianControl - report.CI[0]) != 0 {
-			interval[0] = (report.MedianControl/(report.MedianControl-report.CI[0]) - 1) * 100
-		}
-		if (report.MedianControl - report.CI[1]) != 0 {
-			interval[1] = (report.MedianControl/(report.MedianControl-report.CI[1]) - 1) * 100
-		}
-
-		// Ensure interval is ordered correctly (lower <= upper)
-		if interval[0] > interval[1] {
-			interval[0], interval[1] = interval[1], interval[0]
-		}
-	}
+	change := ratioToChange(ratio)
 
 	switch {
 	case !report.Significant:
 		return "🟰 similar"
-	case speedup > 1:
+	case ratio < 1:
 		return fmt.Sprintf("✅ %s", formatChange(change))
 	default:
 		return fmt.Sprintf("❌ %s", formatChange(change))
 	}
+}
+
+func ratioToChange(ratio float64) float64 {
+	return (1/ratio - 1) * 100
 }
 
 // formatChange formats the change in performance
@@ -96,5 +98,36 @@ func formatAllocs(allocsPerOp float64) string {
 		return fmt.Sprintf("%.0f", allocsPerOp)
 	default:
 		return "0"
+	}
+}
+
+func formatAllocsWithChange(allocsPerOp float64, change allocChange) string {
+	value := formatAllocs(allocsPerOp)
+	switch change {
+	case allocBetter:
+		return "✅ " + value
+	case allocWorse:
+		return "❌ " + value
+	case allocSame:
+		return "🟰 " + value
+	default:
+		return value
+	}
+}
+
+func compareAllocs(previous, current []float64) allocChange {
+	if len(previous) == 0 || len(current) == 0 {
+		return allocUnknown
+	}
+
+	prevMedian := median(previous)
+	currMedian := median(current)
+	switch {
+	case math.Abs(currMedian-prevMedian) <= 1e-9:
+		return allocSame
+	case currMedian < prevMedian:
+		return allocBetter
+	default:
+		return allocWorse
 	}
 }

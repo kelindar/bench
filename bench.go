@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"gonum.org/v1/gonum/stat"
 )
 
 const (
@@ -20,14 +18,15 @@ const (
 	defaultTableFmt   = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
 	defaultFilename   = "bench.gob"
 	defaultConfidence = 99.9
-	boostramSamples   = 10000
+	defaultThreshold  = 5.0
+	defaultBootstrap  = 100000
 )
 
 // Result represents a single benchmark result
 type Result struct {
 	Name      string    `json:"name"`
 	Samples   []float64 `json:"samples"`
-	Allocs    []float64 `json:"-"`
+	Allocs    []float64 `json:"allocs"`
 	Timestamp int64     `json:"timestamp"`
 }
 
@@ -45,6 +44,8 @@ func Run(fn func(*B), opts ...Option) {
 		duration:   defaultDuration,
 		tableFmt:   defaultTableFmt,
 		confidence: defaultConfidence,
+		threshold:  defaultThreshold,
+		bootstrap:  defaultBootstrap,
 		codec:      gobCodec{},
 	}
 
@@ -142,29 +143,28 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 
 	// Benchmark our implementation
 	ourSamples, ourAllocs := r.benchmark(ourFn)
-	nsPerOp := stat.Mean(ourSamples, nil)
+	nsPerOp := median(ourSamples)
 	opsPerSec := 1e9 / nsPerOp
 
 	// Calculate average allocations per operation
-	var totalAllocs float64
-	for _, v := range ourAllocs {
-		totalAllocs += v
-	}
-	avgAllocsPerOp := totalAllocs / float64(len(ourSamples))
+	avgAllocsPerOp := median(ourAllocs)
 
 	// Create result
 	result := Result{
 		Name:      name,
 		Samples:   ourSamples,
+		Allocs:    ourAllocs,
 		Timestamp: time.Now().Unix(),
 	}
 
 	// Calculate delta vs previous run
 	prevResult, exists := prevResults[name]
 	vsPrev := "new"
+	allocsChange := allocUnknown
 	if exists {
-		report = bca(prevResult.Samples, ourSamples, r.confidence/100.0, boostramSamples)
+		report = bca(prevResult.Samples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold)
 		vsPrev = r.formatComparison(report)
+		allocsChange = compareAllocs(prevResult.Allocs, ourAllocs)
 		if r.t != nil && report.Significant && report.Delta > 0 {
 			r.t.Errorf("%s has a performance regression of %s", name, vsPrev)
 		}
@@ -174,7 +174,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	vsRef := ""
 	if refFn != nil {
 		refSamples, _ := r.benchmark(refFn)
-		report := bca(refSamples, ourSamples, r.confidence/100.0, boostramSamples)
+		report := bca(refSamples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold)
 		vsRef = r.formatComparison(report)
 	}
 
@@ -182,7 +182,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	fmt.Printf(r.tableFmt, name,
 		formatTime(nsPerOp),
 		formatOps(opsPerSec),
-		formatAllocs(avgAllocsPerOp),
+		formatAllocsWithChange(avgAllocsPerOp, allocsChange),
 		vsPrev,
 		vsRef)
 
@@ -206,6 +206,8 @@ func Assert(t testing.TB, fn func(*B), opts ...Option) {
 		duration:   defaultDuration,
 		tableFmt:   defaultTableFmt,
 		confidence: defaultConfidence,
+		threshold:  defaultThreshold,
+		bootstrap:  defaultBootstrap,
 		codec:      gobCodec{},
 		dryRun:     true,
 	}

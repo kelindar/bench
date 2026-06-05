@@ -13,6 +13,10 @@ func TestFormatHelpers(t *testing.T) {
 	assert.Equal(t, "1.5K", formatAllocs(1500))
 	assert.Equal(t, "10", formatAllocs(10))
 	assert.Equal(t, "0", formatAllocs(0.5))
+	assert.Equal(t, "✅ 0", formatAllocsWithChange(0, allocBetter))
+	assert.Equal(t, "❌ 1", formatAllocsWithChange(1, allocWorse))
+	assert.Equal(t, "🟰 0", formatAllocsWithChange(0, allocSame))
+	assert.Equal(t, "0", formatAllocsWithChange(0, allocUnknown))
 
 	assert.Contains(t, formatTime(2e6), "ms")
 	assert.Contains(t, formatTime(2e3), "µs")
@@ -48,7 +52,16 @@ func TestFormatComparisonCases(t *testing.T) {
 	r = Report{MedianControl: 1000, MedianVariant: 0.5, Significant: true}
 	assert.Equal(t, "✅ uncomparable", b.formatComparison(r))
 
-	// Typical improvement with confidence interval
-	r = Report{MedianControl: 100, MedianVariant: 50, Significant: true, CI: [2]float64{-60, -40}}
-	assert.Contains(t, b.formatComparison(r), "+100%")
+	// Typical improvement without a confidence interval suffix
+	r = Report{MedianControl: 100, MedianVariant: 50, Ratio: 0.5, RatioCI: [2]float64{0.4, 0.6}, Significant: true}
+	out := b.formatComparison(r)
+	assert.Equal(t, "✅ +100%", out)
+	assert.NotContains(t, out, "[")
+}
+
+func TestCompareAllocs(t *testing.T) {
+	assert.Equal(t, allocUnknown, compareAllocs(nil, []float64{1}))
+	assert.Equal(t, allocSame, compareAllocs([]float64{1, 1, 1}, []float64{1, 1, 1}))
+	assert.Equal(t, allocBetter, compareAllocs([]float64{2, 2, 2}, []float64{1, 1, 1}))
+	assert.Equal(t, allocWorse, compareAllocs([]float64{1, 1, 1}, []float64{2, 2, 2}))
 }
