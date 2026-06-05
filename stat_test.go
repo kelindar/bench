@@ -37,10 +37,24 @@ func TestBCaBootstrapIdentical(t *testing.T) {
 	identical := []float64{10.0, 10.0, 10.0, 10.0, 10.0}
 	result := bca(identical, identical, 0.95, 1000, defaultThreshold)
 
+	assert.True(t, result.Degenerate, "Identical data should produce a degenerate bootstrap distribution")
 	assert.False(t, result.Significant, "Identical data should not be significant")
 	assert.InDelta(t, 0.0, result.Delta, 0.001, "Delta should be near zero for identical data")
 	assert.True(t, result.CI[0] <= 0.0, "Lower CI should be <= 0")
 	assert.True(t, result.CI[1] >= 0.0, "Upper CI should be >= 0")
+}
+
+func TestBCaBootstrapDegenerateIsInconclusive(t *testing.T) {
+	t.Parallel()
+
+	control := []float64{100, 100, 100, 100}
+	experiment := []float64{80, 80, 80, 80}
+
+	result := bca(control, experiment, 0.95, 1000, defaultThreshold)
+
+	assert.True(t, result.Degenerate, "Constant bootstrap distribution should be reported")
+	assert.False(t, result.Significant, "Degenerate bootstrap distribution should be inconclusive")
+	assert.InDelta(t, math.Log(0.8), result.Delta, 1e-12)
 }
 
 func TestBCaBootstrapSmallDifference(t *testing.T) {
@@ -114,8 +128,8 @@ func TestBCaBootstrapPracticalSignificance(t *testing.T) {
 func TestBCaBootstrapConfigurableThreshold(t *testing.T) {
 	t.Parallel()
 
-	control := []float64{100, 100, 100, 100, 100}
-	experiment := []float64{94, 94, 94, 94, 94}
+	control := []float64{99.9, 100.0, 100.0, 100.1, 100.1}
+	experiment := []float64{93.9, 94.0, 94.0, 94.1, 94.1}
 
 	assert.True(t, bca(control, experiment, 0.95, 1000, 5).Significant)
 	assert.False(t, bca(control, experiment, 0.95, 1000, 10).Significant)
@@ -125,6 +139,23 @@ func TestBiasCorrectionUsesMidrankForTies(t *testing.T) {
 	t.Parallel()
 
 	assert.InDelta(t, 0, computeBiasCorrection(1, []float64{1, 1, 1, 1}), 1e-12)
+}
+
+func TestAccelerationUsesTwoSampleJackknife(t *testing.T) {
+	t.Parallel()
+
+	control := []float64{10, 11, 12, 13, 14}
+	experiment := []float64{7, 8, 9, 10, 15, 16, 20}
+
+	assert.InDelta(t, 0.015157626068123558, computeAcceleration(control, experiment), 1e-15)
+}
+
+func TestInvalidConfidenceUsesDefault(t *testing.T) {
+	t.Parallel()
+
+	result := bca([]float64{1, 2, 3}, []float64{2, 3, 4}, -1, 100, defaultThreshold)
+
+	assert.Equal(t, defaultConfidence/100.0, result.Confidence)
 }
 
 func TestMedianDoesNotMutateInput(t *testing.T) {

@@ -30,7 +30,7 @@ func main() {
 
 		// Run a benchmark that sorts the testdata
 		b.Run("sort", func(i int) {
-			clone := make([]string, 0, len(testdata))
+			clone := make([]string, len(testdata))
 			copy(clone, testdata)
 			sort.Strings(clone)
 		})

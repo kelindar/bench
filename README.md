@@ -10,22 +10,24 @@
 
 ## Bench: Statistical Benchmarking for Go
 
-A **small, statistical benchmarking library** for Go, designed for robust, repeatable, and insightful performance analysis using state-of-the-art BCa bootstrap inference. 
+A **small, statistical benchmarking library** for Go, designed for robust, repeatable, and insightful performance analysis using BCa-style bootstrap inference.
 
-- **Analyze performance** with BCa (Bias-Corrected and Accelerated) bootstrap for rigorous statistical significance
+- **Analyze performance** with bias-corrected and accelerated bootstrap intervals for median timing ratios
 - **Persist results** incrementally in Gob format for resilience and tracking
 - **Compare runs** and reference implementations with confidence intervals
 - **Format output** in clean, customizable tables
 - **Configurable** thresholds, sampling and other options for precise control
 
-This library applies the **bias-corrected and accelerated** (BCa) bootstrap to the median timing ratio between runs. It resamples the raw measurements **100 000 times** (by default), evaluates `log(variant/control)`, then adjusts the percentile endpoints with the bias and acceleration. Working in log-ratio space makes improvements and regressions symmetric and avoids absolute-duration thresholds that behave differently for fast and slow benchmarks.
+This library applies a **bias-corrected and accelerated** (BCa) bootstrap interval to the median timing ratio between independent sample sets. It resamples the raw measurements **100 000 times** (by default), evaluates `log(variant/control)`, then adjusts the percentile endpoints with bias correction and the multi-sample jackknife acceleration. Working in log-ratio space makes improvements and regressions symmetric and avoids absolute-duration thresholds that behave differently for fast and slow benchmarks.
 
-However, good practice is **25+ independent timings**; smaller n inflates the acceleration estimate and can widen intervals. Similarly, very heavy-tailed timing data can erode coverage and may need trimming or more samples.
+Good practice is **25+ independent timings**; smaller n inflates the acceleration estimate and can widen intervals. Similarly, very heavy-tailed timing data can erode coverage and may need trimming or more samples. Benchmarks should be collected under stable conditions because CPU frequency changes, thermal drift, background load, cache state, and GC behavior can bias the samples before the bootstrap sees them. Reference comparisons are sampled in alternating order to reduce simple run-order drift.
+
+The practical threshold is interpreted as a symmetric multiplicative timing ratio in log space: `WithThreshold(5)` requires the whole confidence interval to clear `log(1.05)` for regressions or `-log(1.05)` for improvements. Allocation indicators are simple median comparisons and are not confidence intervals.
 
 
 **Use When**
 
-* ✅ You want statistically rigorous performance comparisons between Go implementations
+* ✅ You want confidence-aware performance comparisons between Go implementations
 * ✅ You need publication-quality statistical analysis with confidence intervals
 * ✅ You need incremental, resilient result saving (e.g., for CI or long runs)
 * ✅ You want to compare against previous or reference runs with clear significance
@@ -71,6 +73,7 @@ func main() {
     bench.WithConfidence(95.0),       // optional: set confidence level (default 99.9%)
     bench.WithThreshold(10.0),        // optional: require at least 10% practical change
     bench.WithBootstrap(50_000),      // optional: set bootstrap resamples
+    bench.WithSeed(42),               // optional: mix in a deterministic bootstrap seed
     // Add more options as needed
     )
 }
@@ -103,8 +106,9 @@ The benchmark runner can be customized with a set of option functions. The table
 | `WithReference` | Enables the reference comparison column in the output. Provide a reference implementation when calling `b.Run` and Bench will show how your code performs against that reference, making regressions easy to spot. |
 | `WithDryRun` | Prevents the library from writing results to disk. This option is useful for quick experiments or CI jobs where you just want to see the formatted output without updating any files. |
 | `WithConfidence` | Sets the confidence level (in percent) for significance testing. Higher values make it harder for a difference to be considered statistically significant. |
-| `WithThreshold` | Sets the minimum practical change (in percent) required before a statistically significant interval is reported as an improvement or regression. Raising this value is useful when unchanged code still shows run-to-run movement from machine noise. |
+| `WithThreshold` | Sets the minimum practical timing-ratio change (in percent) required before a statistically significant interval is reported as an improvement or regression. Raising this value is useful when unchanged code still shows run-to-run movement from machine noise. |
 | `WithBootstrap` | Sets how many bootstrap resamples are used for comparisons. Increase this when using very high confidence levels; lower it for faster exploratory runs. |
+| `WithSeed` | Mixes a user-provided seed into the deterministic bootstrap RNG. The default remains reproducible based on sample counts and bootstrap count. |
 
 ## About
 

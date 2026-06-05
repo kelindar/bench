@@ -4,6 +4,7 @@
 package bench
 
 import (
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ func TestWithOptions(t *testing.T) {
 	WithConfidence(95.5)(&cfg)
 	WithThreshold(7.5)(&cfg)
 	WithBootstrap(1234)(&cfg)
+	WithSeed(99)(&cfg)
 
 	assert.Equal(t, "foo.json", cfg.filename)
 	assert.Equal(t, "bar", cfg.filter)
@@ -34,6 +36,45 @@ func TestWithOptions(t *testing.T) {
 	assert.InDelta(t, 95.5, cfg.confidence, 0.001)
 	assert.InDelta(t, 7.5, cfg.threshold, 0.001)
 	assert.Equal(t, 1234, cfg.bootstrap)
+	assert.Equal(t, uint64(99), cfg.seed)
+}
+
+func TestInvalidOptionsAreClamped(t *testing.T) {
+	cfg := config{}
+
+	WithSamples(0)(&cfg)
+	WithDuration(0)(&cfg)
+	WithConfidence(math.NaN())(&cfg)
+	WithThreshold(-1)(&cfg)
+	WithBootstrap(0)(&cfg)
+
+	assert.Equal(t, minSamples, cfg.samples)
+	assert.Equal(t, defaultDuration, cfg.duration)
+	assert.Equal(t, defaultConfidence, cfg.confidence)
+	assert.Equal(t, 0.0, cfg.threshold)
+	assert.Equal(t, defaultBootstrap, cfg.bootstrap)
+}
+
+func TestConfigNormalize(t *testing.T) {
+	cfg := config{
+		samples:    -1,
+		duration:   -1,
+		confidence: math.Inf(1),
+		threshold:  -1,
+		bootstrap:  -1,
+	}
+
+	cfg.normalize()
+
+	assert.Equal(t, defaultFilename, cfg.filename)
+	assert.Equal(t, minSamples, cfg.samples)
+	assert.Equal(t, defaultDuration, cfg.duration)
+	assert.Equal(t, defaultTableFmt, cfg.tableFmt)
+	assert.Equal(t, defaultConfidence, cfg.confidence)
+	assert.Equal(t, 0.0, cfg.threshold)
+	assert.Equal(t, defaultBootstrap, cfg.bootstrap)
+	_, ok := cfg.codec.(gobCodec)
+	assert.True(t, ok)
 }
 
 func TestShouldRun(t *testing.T) {
@@ -131,6 +172,27 @@ func TestRunWithBCaBootstrap(t *testing.T) {
 
 	loaded := jsonCodec{}.load(file)
 	assert.Len(t, loaded["test_bca"].Allocs, 10, "allocation samples should be saved with timing samples")
+}
+
+func TestRunNRequiresPositiveOps(t *testing.T) {
+	file := "test_runn_invalid.json"
+	defer os.Remove(file)
+
+	assert.PanicsWithValue(t, "bench: RunN function must return a positive operation count", func() {
+		Run(func(b *B) {
+			b.RunN("bad", func(i int) int {
+				return 0
+			})
+		}, WithFile(file), WithSamples(2), WithDuration(time.Nanosecond))
+	})
+}
+
+func TestRunNDetectsOpsOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+
+	assert.PanicsWithValue(t, "bench: RunN operation count overflow", func() {
+		addOps(maxInt, 1)
+	})
 }
 
 func TestAssert(t *testing.T) {
