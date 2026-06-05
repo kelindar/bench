@@ -24,6 +24,8 @@ type config struct {
 	showRef    bool
 	dryRun     bool
 	confidence float64
+	threshold  float64
+	bootstrap  int
 	codec      codec
 }
 
@@ -81,6 +83,23 @@ func WithConfidence(level float64) Option {
 	}
 }
 
+// WithThreshold sets the minimum practical change, in percent, required before
+// a statistically significant interval is reported as an improvement/regression.
+func WithThreshold(percent float64) Option {
+	return func(c *config) {
+		c.threshold = percent
+	}
+}
+
+// WithBootstrap sets the number of bootstrap resamples used for comparisons.
+func WithBootstrap(n int) Option {
+	return func(c *config) {
+		if n > 0 {
+			c.bootstrap = n
+		}
+	}
+}
+
 // initFlags parses command-line flags and applies them to the config. It
 // recognizes "-bench" to filter benchmarks by prefix and "-n" for dry runs.
 func initFlags(c *config) {
@@ -102,6 +121,10 @@ func initFlags(c *config) {
 	}
 	_ = fs.Parse(args)
 
-	c.filter = *prefix
-	c.dryRun = *dry
+	if *prefix != "" {
+		c.filter = *prefix
+	}
+	if *dry {
+		c.dryRun = true
+	}
 }

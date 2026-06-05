@@ -20,6 +20,8 @@ func TestWithOptions(t *testing.T) {
 	WithReference()(&cfg)
 	WithDryRun()(&cfg)
 	WithConfidence(95.5)(&cfg)
+	WithThreshold(7.5)(&cfg)
+	WithBootstrap(1234)(&cfg)
 
 	assert.Equal(t, "foo.json", cfg.filename)
 	assert.Equal(t, "bar", cfg.filter)
@@ -30,6 +32,8 @@ func TestWithOptions(t *testing.T) {
 	_, ok := cfg.codec.(jsonCodec)
 	assert.True(t, ok)
 	assert.InDelta(t, 95.5, cfg.confidence, 0.001)
+	assert.InDelta(t, 7.5, cfg.threshold, 0.001)
+	assert.Equal(t, 1234, cfg.bootstrap)
 }
 
 func TestShouldRun(t *testing.T) {
@@ -38,6 +42,20 @@ func TestShouldRun(t *testing.T) {
 	assert.False(t, b.shouldRun("bar"))
 	b.filter = ""
 	assert.True(t, b.shouldRun("anything"))
+}
+
+func TestInitFlagsPreservesExistingConfig(t *testing.T) {
+	oldArgs := os.Args
+	t.Cleanup(func() {
+		os.Args = oldArgs
+	})
+	os.Args = []string{"test"}
+
+	cfg := config{dryRun: true, filter: "keep"}
+	initFlags(&cfg)
+
+	assert.True(t, cfg.dryRun)
+	assert.Equal(t, "keep", cfg.filter)
 }
 
 func TestRunAndFiltering(t *testing.T) {
@@ -78,7 +96,7 @@ func TestBCaBootstrap(t *testing.T) {
 	experiment := []float64{8.0, 9.0, 7.5, 8.5, 7.0, 8.0, 9.5, 8.2}
 
 	// Run BCa bootstrap with 95% confidence
-	result := bca(control, experiment, 0.95, 1000)
+	result := bca(control, experiment, 0.95, 1000, defaultThreshold)
 
 	// Check that we get reasonable results
 	assert.True(t, result.Delta < 0, "Expected negative delta (experiment faster)")
@@ -91,7 +109,7 @@ func TestBCaBootstrap(t *testing.T) {
 
 	// Test with identical data (should not be significant)
 	identical := []float64{10.0, 10.0, 10.0, 10.0}
-	result2 := bca(identical, identical, 0.95, 1000)
+	result2 := bca(identical, identical, 0.95, 1000, defaultThreshold)
 	assert.False(t, result2.Significant, "Identical data should not be significant")
 	assert.InDelta(t, 0.0, result2.Delta, 0.001, "Delta should be near zero for identical data")
 }
@@ -110,6 +128,9 @@ func TestRunWithBCaBootstrap(t *testing.T) {
 	// Verify results file was created
 	_, err := os.Stat(file)
 	assert.NoError(t, err, "results file should be created")
+
+	loaded := jsonCodec{}.load(file)
+	assert.Len(t, loaded["test_bca"].Allocs, 10, "allocation samples should be saved with timing samples")
 }
 
 func TestAssert(t *testing.T) {
