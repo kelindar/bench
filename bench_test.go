@@ -4,131 +4,232 @@
 package bench
 
 import (
+	"io"
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestWithOptions(t *testing.T) {
-	cfg := config{}
-	WithFile("foo.json")(&cfg)
-	WithFilter("bar")(&cfg)
-	WithSamples(42)(&cfg)
-	WithDuration(123 * time.Millisecond)(&cfg)
-	WithReference()(&cfg)
-	WithDryRun()(&cfg)
-	WithConfidence(95.5)(&cfg)
-	WithThreshold(7.5)(&cfg)
-	WithBootstrap(1234)(&cfg)
-	WithSeed(99)(&cfg)
+func TestConfig(t *testing.T) {
+	t.Run("options", func(t *testing.T) {
+		cfg := config{}
+		WithFile("foo.json")(&cfg)
+		WithFilter("bar")(&cfg)
+		WithSamples(42)(&cfg)
+		WithDuration(123 * time.Millisecond)(&cfg)
+		WithReference("ref.gob")(&cfg)
+		WithDryRun()(&cfg)
+		WithConfidence(95.5)(&cfg)
+		WithThreshold(7.5)(&cfg)
+		WithBootstrap(1234)(&cfg)
+		WithSeed(99)(&cfg)
 
-	assert.Equal(t, "foo.json", cfg.filename)
-	assert.Equal(t, "bar", cfg.filter)
-	assert.Equal(t, 42, cfg.samples)
-	assert.Equal(t, 123*time.Millisecond, cfg.duration)
-	assert.True(t, cfg.showRef)
-	assert.True(t, cfg.dryRun)
-	_, ok := cfg.codec.(jsonCodec)
-	assert.True(t, ok)
-	assert.InDelta(t, 95.5, cfg.confidence, 0.001)
-	assert.InDelta(t, 7.5, cfg.threshold, 0.001)
-	assert.Equal(t, 1234, cfg.bootstrap)
-	assert.Equal(t, uint64(99), cfg.seed)
-}
-
-func TestInvalidOptionsAreClamped(t *testing.T) {
-	cfg := config{}
-
-	WithSamples(0)(&cfg)
-	WithDuration(0)(&cfg)
-	WithConfidence(math.NaN())(&cfg)
-	WithThreshold(-1)(&cfg)
-	WithBootstrap(0)(&cfg)
-
-	assert.Equal(t, minSamples, cfg.samples)
-	assert.Equal(t, defaultDuration, cfg.duration)
-	assert.Equal(t, defaultConfidence, cfg.confidence)
-	assert.Equal(t, 0.0, cfg.threshold)
-	assert.Equal(t, defaultBootstrap, cfg.bootstrap)
-}
-
-func TestConfigNormalize(t *testing.T) {
-	cfg := config{
-		samples:    -1,
-		duration:   -1,
-		confidence: math.Inf(1),
-		threshold:  -1,
-		bootstrap:  -1,
-	}
-
-	cfg.normalize()
-
-	assert.Equal(t, defaultFilename, cfg.filename)
-	assert.Equal(t, minSamples, cfg.samples)
-	assert.Equal(t, defaultDuration, cfg.duration)
-	assert.Equal(t, defaultTableFmt, cfg.tableFmt)
-	assert.Equal(t, defaultConfidence, cfg.confidence)
-	assert.Equal(t, 0.0, cfg.threshold)
-	assert.Equal(t, defaultBootstrap, cfg.bootstrap)
-	_, ok := cfg.codec.(gobCodec)
-	assert.True(t, ok)
-}
-
-func TestShouldRun(t *testing.T) {
-	b := &B{config: config{filter: "foo"}}
-	assert.True(t, b.shouldRun("foobar"))
-	assert.False(t, b.shouldRun("bar"))
-	b.filter = ""
-	assert.True(t, b.shouldRun("anything"))
-}
-
-func TestInitFlagsPreservesExistingConfig(t *testing.T) {
-	oldArgs := os.Args
-	t.Cleanup(func() {
-		os.Args = oldArgs
+		assert.Equal(t, "foo.json", cfg.filename)
+		assert.Equal(t, "bar", cfg.filter)
+		assert.Equal(t, 42, cfg.samples)
+		assert.Equal(t, 123*time.Millisecond, cfg.duration)
+		assert.True(t, cfg.showRef)
+		assert.Equal(t, "ref.gob", cfg.referenceFilename)
+		assert.True(t, cfg.dryRun)
+		_, ok := cfg.codec.(jsonCodec)
+		assert.True(t, ok)
+		assert.InDelta(t, 95.5, cfg.confidence, 0.001)
+		assert.InDelta(t, 7.5, cfg.threshold, 0.001)
+		assert.Equal(t, 1234, cfg.bootstrap)
+		assert.Equal(t, uint64(99), cfg.seed)
 	})
-	os.Args = []string{"test"}
 
-	cfg := config{dryRun: true, filter: "keep"}
-	initFlags(&cfg)
+	t.Run("invalid options", func(t *testing.T) {
+		cfg := config{}
 
-	assert.True(t, cfg.dryRun)
-	assert.Equal(t, "keep", cfg.filter)
+		WithSamples(0)(&cfg)
+		WithDuration(0)(&cfg)
+		WithConfidence(math.NaN())(&cfg)
+		WithThreshold(-1)(&cfg)
+		WithBootstrap(0)(&cfg)
+
+		assert.Equal(t, minSamples, cfg.samples)
+		assert.Equal(t, defaultDuration, cfg.duration)
+		assert.Equal(t, defaultConfidence, cfg.confidence)
+		assert.Equal(t, 0.0, cfg.threshold)
+		assert.Equal(t, defaultBootstrap, cfg.bootstrap)
+	})
+
+	t.Run("normalize", func(t *testing.T) {
+		cfg := config{
+			samples:    -1,
+			duration:   -1,
+			confidence: math.Inf(1),
+			threshold:  -1,
+			bootstrap:  -1,
+		}
+
+		cfg.normalize()
+
+		assert.Equal(t, defaultFilename, cfg.filename)
+		assert.Equal(t, minSamples, cfg.samples)
+		assert.Equal(t, defaultDuration, cfg.duration)
+		assert.Equal(t, defaultTableFmt, cfg.tableFmt)
+		assert.Equal(t, defaultConfidence, cfg.confidence)
+		assert.Equal(t, 0.0, cfg.threshold)
+		assert.Equal(t, defaultBootstrap, cfg.bootstrap)
+		_, ok := cfg.codec.(gobCodec)
+		assert.True(t, ok)
+	})
+
+	t.Run("filter", func(t *testing.T) {
+		b := &B{config: config{filter: "foo"}}
+		assert.True(t, b.shouldRun("foobar"))
+		assert.False(t, b.shouldRun("bar"))
+		b.filter = ""
+		assert.True(t, b.shouldRun("anything"))
+	})
+
+	t.Run("flags preserve config", func(t *testing.T) {
+		oldArgs := os.Args
+		t.Cleanup(func() {
+			os.Args = oldArgs
+		})
+		os.Args = []string{"test"}
+
+		cfg := config{dryRun: true, filter: "keep"}
+		initFlags(&cfg)
+
+		assert.True(t, cfg.dryRun)
+		assert.Equal(t, "keep", cfg.filter)
+	})
 }
 
-func TestRunAndFiltering(t *testing.T) {
-	file := "test_bench2.json"
-	defer os.Remove(file)
-	var ran, ranRef bool
-	Run(func(b *B) {
-		b.Run("foo", func(i int) { ran = true })
-		b.Run("bar", func(i int) {}, func(i int) { ranRef = true })
-	}, WithFile(file), WithFilter("foo"))
-	assert.True(t, ran, "filtered benchmark did not run")
-	assert.False(t, ranRef, "filtered out benchmark ran")
-}
+func TestRun(t *testing.T) {
+	t.Run("filtering", func(t *testing.T) {
+		file := "test_bench2.json"
+		defer os.Remove(file)
+		var ran, ranRef bool
+		Run(func(b *B) {
+			b.Run("foo", func(i int) { ran = true })
+			b.Run("bar", func(i int) {}, func(i int) { ranRef = true })
+		}, WithFile(file), WithFilter("foo"))
+		assert.True(t, ran, "filtered benchmark did not run")
+		assert.False(t, ranRef, "filtered out benchmark ran")
+	})
 
-func TestRunWithReferenceAndNoPrev(t *testing.T) {
-	file := "test_bench3.json"
-	defer os.Remove(file)
-	Run(func(b *B) {
-		b.Run("bench", func(i int) {}, func(i int) {})
-	}, WithFile(file), WithReference())
-	_, err := os.Stat(file)
-	assert.NoError(t, err, "results file not created")
-}
+	t.Run("reference without previous", func(t *testing.T) {
+		file := "test_bench3.json"
+		defer os.Remove(file)
+		Run(func(b *B) {
+			b.Run("bench", func(i int) {}, func(i int) {})
+		}, WithFile(file), WithReference())
+		_, err := os.Stat(file)
+		assert.NoError(t, err, "results file not created")
+	})
 
-func TestRunDryRun(t *testing.T) {
-	file := "test_bench_dry.json"
-	defer os.Remove(file)
-	Run(func(b *B) {
-		b.Run("bench", func(i int) {})
-	}, WithFile(file), WithDryRun())
-	_, err := os.Stat(file)
-	assert.Error(t, err, "results file should not be created")
+	t.Run("gob reference", func(t *testing.T) {
+		referenceFile := "test_reference.gob"
+		resultFile := "test_reference_current.gob"
+		defer os.Remove(referenceFile)
+		defer os.Remove(resultFile)
+
+		err := gobCodec{}.save(referenceFile, map[string]Result{
+			"bench": {Samples: []float64{0, 0}},
+		})
+		assert.NoError(t, err)
+
+		oldStdout := os.Stdout
+		reader, writer, err := os.Pipe()
+		assert.NoError(t, err)
+		os.Stdout = writer
+		t.Cleanup(func() {
+			os.Stdout = oldStdout
+			reader.Close()
+			writer.Close()
+		})
+
+		Run(func(b *B) {
+			b.Run("bench", func(i int) {})
+		}, WithFile(resultFile), WithReference(referenceFile), WithSamples(2), WithDuration(time.Nanosecond), WithBootstrap(10))
+
+		assert.NoError(t, writer.Close())
+		os.Stdout = oldStdout
+		output, err := io.ReadAll(reader)
+		assert.NoError(t, err)
+		assert.True(t, strings.Contains(string(output), "🟰 similar"), "reference comparison was not printed: %s", output)
+	})
+
+	t.Run("dry run", func(t *testing.T) {
+		file := "test_bench_dry.json"
+		defer os.Remove(file)
+		Run(func(b *B) {
+			b.Run("bench", func(i int) {})
+		}, WithFile(file), WithDryRun())
+		_, err := os.Stat(file)
+		assert.Error(t, err, "results file should not be created")
+	})
+
+	t.Run("bca bootstrap", func(t *testing.T) {
+		file := "test_bca_bootstrap.json"
+		defer os.Remove(file)
+
+		// Test that benchmark execution works with BCa bootstrap (always enabled)
+		Run(func(b *B) {
+			b.Run("test_bca", func(i int) {
+				time.Sleep(time.Microsecond) // Simulate some work
+			})
+		}, WithFile(file), WithSamples(10))
+
+		// Verify results file was created
+		_, err := os.Stat(file)
+		assert.NoError(t, err, "results file should be created")
+
+		loaded := jsonCodec{}.load(file)
+		assert.Len(t, loaded["test_bca"].Allocs, 10, "allocation samples should be saved with timing samples")
+	})
+
+	t.Run("positive ops", func(t *testing.T) {
+		file := "test_runn_invalid.json"
+		defer os.Remove(file)
+
+		assert.PanicsWithValue(t, "bench: RunN function must return a positive operation count", func() {
+			Run(func(b *B) {
+				b.RunN("bad", func(i int) int {
+					return 0
+				})
+			}, WithFile(file), WithSamples(2), WithDuration(time.Nanosecond))
+		})
+	})
+
+	t.Run("ops overflow", func(t *testing.T) {
+		maxInt := int(^uint(0) >> 1)
+
+		assert.PanicsWithValue(t, "bench: RunN operation count overflow", func() {
+			addOps(maxInt, 1)
+		})
+	})
+
+	t.Run("assert", func(t *testing.T) {
+		file := "test_assert.json"
+		defer os.Remove(file)
+
+		// baseline run to create previous results
+		Run(func(b *B) {
+			b.Run("bench", func(i int) { time.Sleep(time.Millisecond) })
+		}, WithFile(file), WithSamples(5), WithDuration(time.Millisecond))
+
+		before, err := os.Stat(file)
+		assert.NoError(t, err)
+
+		// Assert should pass with identical performance and not modify file
+		Assert(t, func(b *B) {
+			b.Run("bench", func(i int) { time.Sleep(time.Millisecond) })
+		}, WithFile(file), WithSamples(5), WithDuration(time.Millisecond))
+
+		after, err := os.Stat(file)
+		assert.NoError(t, err)
+		assert.Equal(t, before.ModTime(), after.ModTime(), "file should not be modified")
+	})
 }
 
 func TestBCaBootstrap(t *testing.T) {
@@ -153,66 +254,4 @@ func TestBCaBootstrap(t *testing.T) {
 	result2 := bca(identical, identical, 0.95, 1000, defaultThreshold)
 	assert.False(t, result2.Significant, "Identical data should not be significant")
 	assert.InDelta(t, 0.0, result2.Delta, 0.001, "Delta should be near zero for identical data")
-}
-
-func TestRunWithBCaBootstrap(t *testing.T) {
-	file := "test_bca_bootstrap.json"
-	defer os.Remove(file)
-
-	// Test that benchmark execution works with BCa bootstrap (always enabled)
-	Run(func(b *B) {
-		b.Run("test_bca", func(i int) {
-			time.Sleep(time.Microsecond) // Simulate some work
-		})
-	}, WithFile(file), WithSamples(10))
-
-	// Verify results file was created
-	_, err := os.Stat(file)
-	assert.NoError(t, err, "results file should be created")
-
-	loaded := jsonCodec{}.load(file)
-	assert.Len(t, loaded["test_bca"].Allocs, 10, "allocation samples should be saved with timing samples")
-}
-
-func TestRunNRequiresPositiveOps(t *testing.T) {
-	file := "test_runn_invalid.json"
-	defer os.Remove(file)
-
-	assert.PanicsWithValue(t, "bench: RunN function must return a positive operation count", func() {
-		Run(func(b *B) {
-			b.RunN("bad", func(i int) int {
-				return 0
-			})
-		}, WithFile(file), WithSamples(2), WithDuration(time.Nanosecond))
-	})
-}
-
-func TestRunNDetectsOpsOverflow(t *testing.T) {
-	maxInt := int(^uint(0) >> 1)
-
-	assert.PanicsWithValue(t, "bench: RunN operation count overflow", func() {
-		addOps(maxInt, 1)
-	})
-}
-
-func TestAssert(t *testing.T) {
-	file := "test_assert.json"
-	defer os.Remove(file)
-
-	// baseline run to create previous results
-	Run(func(b *B) {
-		b.Run("bench", func(i int) { time.Sleep(time.Millisecond) })
-	}, WithFile(file), WithSamples(5), WithDuration(time.Millisecond))
-
-	before, err := os.Stat(file)
-	assert.NoError(t, err)
-
-	// Assert should pass with identical performance and not modify file
-	Assert(t, func(b *B) {
-		b.Run("bench", func(i int) { time.Sleep(time.Millisecond) })
-	}, WithFile(file), WithSamples(5), WithDuration(time.Millisecond))
-
-	after, err := os.Stat(file)
-	assert.NoError(t, err)
-	assert.Equal(t, before.ModTime(), after.ModTime(), "file should not be modified")
 }

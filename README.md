@@ -79,6 +79,8 @@ func main() {
 }
 ```
 
+To compare against another run saved as `.gob`, omit the reference function and use `bench.WithReference("reference.gob")` alongside `bench.WithFile("results.gob")`.
+
 ### Asserting Benchmarks in CI
 
 Use `bench.Assert` inside your tests to automatically fail when a benchmark regresses compared to the previously recorded results. Assertions run in dry-run mode by default and are skipped when tests are executed with the `-short` flag.
@@ -103,7 +105,7 @@ The benchmark runner can be customized with a set of option functions. The table
 | `WithFilter` | Runs only the benchmarks whose names start with the provided prefix. This is handy when your suite has many benchmarks and you only want to focus on a subset without changing your code. |
 | `WithSamples` | Sets how many samples should be collected for each benchmark. More samples give more stable statistics but also make the run take longer, so adjust the number depending on how precise you need the measurements to be. |
 | `WithDuration` | Controls how long each sample runs. Increase the duration when the code under test is very fast or when you want less variation between runs. |
-| `WithReference` | Enables the reference comparison column in the output. Provide a reference implementation when calling `b.Run` and Bench will show how your code performs against that reference, making regressions easy to spot. |
+| `WithReference` | Enables the reference comparison column. Pass a saved `.gob` or JSON filename to compare against stored results, or pass a reference implementation to `b.Run`. |
 | `WithDryRun` | Prevents the library from writing results to disk. This option is useful for quick experiments or CI jobs where you just want to see the formatted output without updating any files. |
 | `WithConfidence` | Sets the confidence level (in percent) for significance testing. Higher values make it harder for a difference to be considered statistically significant. |
 | `WithThreshold` | Sets the minimum practical timing-ratio change (in percent) required before a statistically significant interval is reported as an improvement or regression. Raising this value is useful when unchanged code still shows run-to-run movement from machine noise. |

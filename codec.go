@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // codec defines methods for encoding and decoding benchmark results.
@@ -19,6 +20,13 @@ type codec interface {
 type jsonCodec struct{}
 
 type gobCodec struct{}
+
+func codecFor(filename string) codec {
+	if strings.HasSuffix(filename, ".gob") {
+		return gobCodec{}
+	}
+	return jsonCodec{}
+}
 
 func (jsonCodec) load(filename string) map[string]Result {
 	data, err := os.ReadFile(filename)
@@ -70,6 +78,13 @@ func (r *B) loadResults() map[string]Result {
 		r.codec = jsonCodec{}
 	}
 	return r.codec.load(r.filename)
+}
+
+func (r *B) loadReferenceResults() map[string]Result {
+	if r.referenceFilename == "" {
+		return nil
+	}
+	return codecFor(r.referenceFilename).load(r.referenceFilename)
 }
 
 // saveResult saves a single result incrementally using the configured codec.
