@@ -16,18 +16,19 @@ type Option func(*config)
 
 // config holds runtime configuration for benchmarks.
 type config struct {
-	filename   string
-	filter     string
-	samples    int
-	duration   time.Duration
-	tableFmt   string
-	showRef    bool
-	dryRun     bool
-	confidence float64
-	threshold  float64
-	bootstrap  int
-	seed       uint64
-	codec      codec
+	filename          string
+	referenceFilename string
+	filter            string
+	samples           int
+	duration          time.Duration
+	tableFmt          string
+	showRef           bool
+	dryRun            bool
+	confidence        float64
+	threshold         float64
+	bootstrap         int
+	seed              uint64
+	codec             codec
 }
 
 func (c *config) normalize() {
@@ -53,11 +54,7 @@ func (c *config) normalize() {
 		c.bootstrap = defaultBootstrap
 	}
 	if c.codec == nil {
-		if strings.HasSuffix(c.filename, ".gob") {
-			c.codec = gobCodec{}
-		} else {
-			c.codec = jsonCodec{}
-		}
+		c.codec = codecFor(c.filename)
 	}
 }
 
@@ -65,11 +62,7 @@ func (c *config) normalize() {
 func WithFile(filename string) Option {
 	return func(c *config) {
 		c.filename = filename
-		if strings.HasSuffix(filename, ".gob") {
-			c.codec = gobCodec{}
-		} else {
-			c.codec = jsonCodec{}
-		}
+		c.codec = codecFor(filename)
 	}
 }
 
@@ -100,10 +93,14 @@ func WithDuration(d time.Duration) Option {
 	}
 }
 
-// WithReference enables reference comparison column
-func WithReference() Option {
+// WithReference enables the reference comparison column. If a filename is
+// provided, saved results are used as the reference by benchmark name.
+func WithReference(filename ...string) Option {
 	return func(c *config) {
 		c.showRef = true
+		if len(filename) > 0 {
+			c.referenceFilename = filename[0]
+		}
 	}
 }
 

@@ -191,8 +191,13 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	prevResults := r.loadResults()
 
 	var ourSamples, ourAllocs, refSamples []float64
+	hasRef := refFn != nil
 	if refFn != nil {
 		ourSamples, ourAllocs, refSamples, _ = r.benchmarkPair(ourFn, refFn)
+	} else if refResult, ok := r.loadReferenceResults()[name]; ok {
+		ourSamples, ourAllocs = r.benchmark(ourFn)
+		refSamples = refResult.Samples
+		hasRef = true
 	} else {
 		ourSamples, ourAllocs = r.benchmark(ourFn)
 	}
@@ -225,7 +230,7 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 
 	// Calculate vs reference if provided
 	vsRef := ""
-	if refFn != nil {
+	if hasRef {
 		report := bcaWithSeed(refSamples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold, r.seed)
 		vsRef = r.formatComparison(report)
 	}

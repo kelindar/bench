@@ -4,8 +4,10 @@
 package bench
 
 import (
+	"io"
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +20,7 @@ func TestWithOptions(t *testing.T) {
 	WithFilter("bar")(&cfg)
 	WithSamples(42)(&cfg)
 	WithDuration(123 * time.Millisecond)(&cfg)
-	WithReference()(&cfg)
+	WithReference("ref.gob")(&cfg)
 	WithDryRun()(&cfg)
 	WithConfidence(95.5)(&cfg)
 	WithThreshold(7.5)(&cfg)
@@ -30,6 +32,7 @@ func TestWithOptions(t *testing.T) {
 	assert.Equal(t, 42, cfg.samples)
 	assert.Equal(t, 123*time.Millisecond, cfg.duration)
 	assert.True(t, cfg.showRef)
+	assert.Equal(t, "ref.gob", cfg.referenceFilename)
 	assert.True(t, cfg.dryRun)
 	_, ok := cfg.codec.(jsonCodec)
 	assert.True(t, ok)
@@ -119,6 +122,38 @@ func TestRunWithReferenceAndNoPrev(t *testing.T) {
 	}, WithFile(file), WithReference())
 	_, err := os.Stat(file)
 	assert.NoError(t, err, "results file not created")
+}
+
+func TestRunWithGobReference(t *testing.T) {
+	referenceFile := "test_reference.gob"
+	resultFile := "test_reference_current.gob"
+	defer os.Remove(referenceFile)
+	defer os.Remove(resultFile)
+
+	err := gobCodec{}.save(referenceFile, map[string]Result{
+		"bench": {Samples: []float64{0, 0}},
+	})
+	assert.NoError(t, err)
+
+	oldStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	assert.NoError(t, err)
+	os.Stdout = writer
+	t.Cleanup(func() {
+		os.Stdout = oldStdout
+		reader.Close()
+		writer.Close()
+	})
+
+	Run(func(b *B) {
+		b.Run("bench", func(i int) {})
+	}, WithFile(resultFile), WithReference(referenceFile), WithSamples(2), WithDuration(time.Nanosecond), WithBootstrap(10))
+
+	assert.NoError(t, writer.Close())
+	os.Stdout = oldStdout
+	output, err := io.ReadAll(reader)
+	assert.NoError(t, err)
+	assert.True(t, strings.Contains(string(output), "🟰 similar"), "reference comparison was not printed: %s", output)
 }
 
 func TestRunDryRun(t *testing.T) {
