@@ -32,10 +32,10 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 }
 
 func bcaWithSeed(control, experiment []float64, confidence float64, bootstrapSamples int, minChangePercent float64, seed uint64) Report {
-	if len(control) == 0 || len(experiment) == 0 {
+	switch {
+	case len(control) == 0 || len(experiment) == 0:
 		return Report{}
-	}
-	if bootstrapSamples <= 0 {
+	case bootstrapSamples <= 0:
 		return Report{}
 	}
 	confidence = normalizeConfidence(confidence)
@@ -318,10 +318,10 @@ func adjustedPercentile(biasCorrection, acceleration, z, fallback float64) float
 
 func percentile(sorted []float64, p float64) float64 {
 	n := len(sorted)
-	if n == 1 || p <= 0 {
+	switch {
+	case n == 1 || p <= 0:
 		return sorted[0]
-	}
-	if p >= 1 {
+	case p >= 1:
 		return sorted[n-1]
 	}
 
