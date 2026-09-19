@@ -218,9 +218,9 @@ func (r *B) record(result Result, previous map[string]Result, refSamples []float
 
 	// Calculate delta vs previous run
 	prevResult, exists := previous[name]
-	vsPrev := "new"
+	vsPrev := "❔ new"
 	allocsChange := allocUnknown
-	report.Inconclusive = "no baseline"
+	report.Inconclusive = "new"
 	if exists {
 		report = r.compare(prevResult, result)
 		vsPrev = r.formatComparison(report)
@@ -249,8 +249,14 @@ func (r *B) record(result Result, previous map[string]Result, refSamples []float
 
 	// Keep a comparable baseline when a run is inconclusive. Legacy files get
 	// one fresh baseline with calibration metadata on the next writable run.
-	if !exists || report.Inconclusive == "" || report.Inconclusive == "no calibration" ||
-		(report.Inconclusive == "baseline incomplete" && r.usable(result)) {
+	if !exists || report.Inconclusive == "" ||
+		len(prevResult.Calibration) == 0 || len(result.Calibration) == 0 ||
+		(report.Inconclusive == "uncertain" &&
+			prevResult.Environment.valid() && result.Environment.valid() &&
+			prevResult.Environment == result.Environment &&
+			len(prevResult.Calibration) == len(prevResult.Samples) &&
+			len(result.Calibration) == len(result.Samples) &&
+			!r.usable(prevResult) && r.usable(result)) {
 		r.saveResult(result)
 	}
 	return
@@ -263,20 +269,20 @@ func (r *B) compare(previous, current Result) Report {
 	reason := ""
 	switch {
 	case len(previous.Calibration) == 0 || len(current.Calibration) == 0:
-		reason = "no calibration"
+		reason = "changed"
 	case !previous.Environment.valid() || !current.Environment.valid():
-		reason = "unknown setup"
+		reason = "changed"
 	case previous.Environment != current.Environment:
-		reason = "setup changed"
+		reason = "changed"
 	case len(previous.Calibration) != len(previous.Samples) || len(current.Calibration) != len(current.Samples):
-		reason = "invalid calibration"
+		reason = "invalid"
 	case !r.usable(previous):
-		reason = "baseline incomplete"
+		reason = "uncertain"
 	default:
 		calibration := bcaWithSeed(previous.Calibration, current.Calibration, r.confidence/100, r.bootstrap, r.threshold, r.seed)
 		margin := 1 + r.threshold/100
 		if calibration.Inconclusive != "" || calibration.RatioCI[0] < 1/margin || calibration.RatioCI[1] > margin {
-			reason = "CPU unstable"
+			reason = "uncertain"
 		}
 	}
 	if reason != "" {

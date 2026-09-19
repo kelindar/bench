@@ -36,13 +36,13 @@ func bca(control, experiment []float64, confidence float64, bootstrapSamples int
 func bcaWithSeed(control, experiment []float64, confidence float64, bootstrapSamples int, minChangePercent float64, seed uint64) Report {
 	switch {
 	case len(control) == 0 || len(experiment) == 0:
-		return Report{Inconclusive: "no samples"}
+		return Report{Inconclusive: "invalid"}
 	case bootstrapSamples <= 0:
-		return Report{Inconclusive: "no resamples"}
+		return Report{Inconclusive: "invalid"}
 	}
 	confidence = normalizeConfidence(confidence)
 	if !validSamples(control) || !validSamples(experiment) {
-		return Report{Confidence: confidence, Inconclusive: "invalid timings"}
+		return Report{Confidence: confidence, Inconclusive: "invalid"}
 	}
 
 	medianControl := median(control)
@@ -61,7 +61,7 @@ func bcaWithSeed(control, experiment []float64, confidence float64, bootstrapSam
 			Delta: originalLogRatio, Ratio: math.Exp(originalLogRatio),
 			CI: [2]float64{math.Inf(-1), math.Inf(1)}, RatioCI: [2]float64{0, math.Inf(1)},
 			MedianControl: medianControl, MedianVariant: medianVariant,
-			Confidence: confidence, Inconclusive: "correlated timings",
+			Confidence: confidence, Inconclusive: "uncertain",
 		}
 	}
 	rng := bootstrapRNG(len(control), len(experiment), bootstrapSamples, seed)
@@ -116,7 +116,7 @@ func bcaWithSeed(control, experiment []float64, confidence float64, bootstrapSam
 	threshold := math.Log1p(math.Max(0, minChangePercent) / 100)
 	switch {
 	case !isFinite(lowerCI) || !isFinite(upperCI):
-		inconclusive = "too few samples"
+		inconclusive = "uncertain"
 	case !significant && (lowerCI < -threshold || upperCI > threshold):
 		inconclusive = "uncertain"
 	}

@@ -69,10 +69,10 @@ func TestStat(t *testing.T) {
 	t.Run("edge cases", func(t *testing.T) {
 		// Test with empty slices
 		result := bca([]float64{}, []float64{1.0}, 0.95, 100, defaultThreshold)
-		assert.Equal(t, "no samples", result.Inconclusive)
+		assert.Equal(t, "invalid", result.Inconclusive)
 
 		result = bca([]float64{1.0}, []float64{}, 0.95, 100, defaultThreshold)
-		assert.Equal(t, "no samples", result.Inconclusive)
+		assert.Equal(t, "invalid", result.Inconclusive)
 
 		// Test with single values
 		result = bca([]float64{5.0}, []float64{10.0}, 0.95, 100, defaultThreshold)
@@ -151,7 +151,7 @@ func TestStability(t *testing.T) {
 	t.Run("insufficient observations", func(t *testing.T) {
 		result := bca([]float64{99, 101}, []float64{119, 121}, 0.999, 10000, 5)
 		assert.False(t, result.Significant, "two observations cannot establish a population median change at 99.9 percent confidence")
-		assert.Equal(t, "too few samples", result.Inconclusive)
+		assert.Equal(t, "uncertain", result.Inconclusive)
 	})
 
 	t.Run("invalid observation", func(t *testing.T) {
@@ -180,7 +180,7 @@ func TestStability(t *testing.T) {
 		}
 		result := bca(control, variant, 0.999, 1000, 5)
 		assert.False(t, result.Significant, "ordered drift does not provide 100 independent observations")
-		assert.Equal(t, "correlated timings", result.Inconclusive)
+		assert.Equal(t, "uncertain", result.Inconclusive)
 	})
 }
 
@@ -282,9 +282,9 @@ func TestValidation(t *testing.T) {
 	}
 
 	result := bcaWithSeed([]float64{1}, []float64{2}, 0.95, 0, defaultThreshold, 1)
-	assert.Equal(t, "no resamples", result.Inconclusive)
+	assert.Equal(t, "invalid", result.Inconclusive)
 	result = bcaWithSeed(nil, []float64{2}, 0.95, 10, defaultThreshold, 1)
-	assert.Equal(t, "no samples", result.Inconclusive)
+	assert.Equal(t, "invalid", result.Inconclusive)
 	for _, confidence := range []float64{0, 1, -1, math.NaN(), math.Inf(1)} {
 		assert.Equal(t, defaultConfidence/100.0, normalizeConfidence(confidence))
 	}
@@ -413,7 +413,7 @@ func TestPercentiles(t *testing.T) {
 
 func TestPower(t *testing.T) {
 	rng := rand.New(rand.NewPCG(101, 203))
-	regressions, falsePositives, correlated := 0, 0, 0
+	regressions, falsePositives, uncertain := 0, 0, 0
 	const trials = 40
 	for trial := 0; trial < trials; trial++ {
 		control, variant := make([]float64, 80), make([]float64, 80)
@@ -425,8 +425,8 @@ func TestPower(t *testing.T) {
 		if result.Significant {
 			regressions++
 		}
-		if result.Inconclusive == "correlated timings" {
-			correlated++
+		if result.Inconclusive != "" && !result.Significant {
+			uncertain++
 		}
 	}
 
@@ -442,7 +442,7 @@ func TestPower(t *testing.T) {
 		}
 	}
 
-	t.Logf("regression power: %d/%d, correlated: %d/%d, false positives: %d/%d", regressions, trials, correlated, trials, falsePositives, trials)
+	t.Logf("regression power: %d/%d, uncertain: %d/%d, false positives: %d/%d", regressions, trials, uncertain, trials, falsePositives, trials)
 	assert.GreaterOrEqual(t, regressions, 35)
 	assert.LessOrEqual(t, falsePositives, 3)
 }
