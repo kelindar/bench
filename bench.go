@@ -194,12 +194,6 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	cpuBefore := cpuSnapshot()
 	ourSamples, ourAllocs, refSamples, calibrations := r.benchmarkPair(ourFn, refFn)
 	usage := cpuUsage(cpuBefore, cpuSnapshot())
-	hasRef := refFn != nil
-	nsPerOp := median(ourSamples)
-	opsPerSec := 1e9 / nsPerOp
-
-	// Calculate average allocations per operation
-	avgAllocsPerOp := median(ourAllocs)
 
 	// Create result
 	result := Result{
@@ -211,16 +205,26 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 		Calibration: calibrations,
 		CPUUsage:    usage,
 	}
+	return r.record(result, prevResults, refSamples)
+}
+
+// record compares collected measurements, reports assertions, and updates a
+// usable baseline. Input results are read-only; persistence uses the codec.
+func (r *B) record(result Result, previous map[string]Result, refSamples []float64) (report Report) {
+	name := result.Name
+	nsPerOp := median(result.Samples)
+	opsPerSec := 1e9 / nsPerOp
+	avgAllocsPerOp := median(result.Allocs)
 
 	// Calculate delta vs previous run
-	prevResult, exists := prevResults[name]
+	prevResult, exists := previous[name]
 	vsPrev := "new"
 	allocsChange := allocUnknown
 	report.Inconclusive = "no baseline"
 	if exists {
 		report = r.compare(prevResult, result)
 		vsPrev = r.formatComparison(report)
-		allocsChange = compareAllocs(prevResult.Allocs, ourAllocs)
+		allocsChange = compareAllocs(prevResult.Allocs, result.Allocs)
 		if r.t != nil && report.Significant && report.Delta > 0 {
 			r.t.Errorf("%s has a performance regression of %s", name, vsPrev)
 		}
@@ -228,8 +232,8 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 
 	// Calculate vs reference if provided
 	vsRef := ""
-	if hasRef {
-		report := bcaWithSeed(refSamples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold, r.seed)
+	if refSamples != nil {
+		report := bcaWithSeed(refSamples, result.Samples, r.confidence/100.0, r.bootstrap, r.threshold, r.seed)
 		vsRef = r.formatComparison(report)
 	} else if refResult, ok := r.loadReferenceResults()[name]; ok {
 		vsRef = r.formatComparison(r.compare(refResult, result))

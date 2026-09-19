@@ -162,12 +162,15 @@ func initFlags(c *config) {
 	args := []string{}
 	for i := 1; i < len(os.Args); i++ {
 		a := os.Args[i]
-		if strings.HasPrefix(a, "-bench") || a == "-bench" || strings.HasPrefix(a, "-n") || a == "-n" {
+		switch {
+		case a == "-bench":
 			args = append(args, a)
-			if !strings.Contains(a, "=") && i+1 < len(os.Args) {
+			if i+1 < len(os.Args) {
 				i++
 				args = append(args, os.Args[i])
 			}
+		case a == "-n", strings.HasPrefix(a, "-bench="), strings.HasPrefix(a, "-n="):
+			args = append(args, a)
 		}
 	}
 	_ = fs.Parse(args)

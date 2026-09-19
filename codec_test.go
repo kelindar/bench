@@ -4,6 +4,7 @@
 package bench
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,5 +42,30 @@ func TestCodec(t *testing.T) {
 		defer os.Remove(file)
 		res := gobCodec{}.load(file)
 		assert.Empty(t, res)
+	})
+
+	t.Run("unwritable destination", func(t *testing.T) {
+		for _, codec := range []codec{jsonCodec{}, gobCodec{}} {
+			assert.Error(t, codec.save(t.TempDir(), map[string]Result{}))
+		}
+	})
+
+	t.Run("invalid JSON leaves baseline intact", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "baseline.json")
+		original := map[string]Result{"bench": {Name: "bench", Samples: []float64{1, 2}}}
+		require.NoError(t, (jsonCodec{}).save(file, original))
+		b := &B{config: config{filename: file}}
+		assert.Equal(t, original, b.loadResults())
+		b.saveResult(Result{Name: "bench", Samples: []float64{math.NaN()}})
+		assert.Equal(t, original, b.loadResults())
+	})
+
+	t.Run("default codec and legacy metadata", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "baseline.json")
+		b := &B{config: config{filename: file}}
+		legacy := Result{Name: "bench", Samples: []float64{1, 2}}
+		b.saveResult(legacy)
+		assert.Equal(t, legacy, b.loadResults()["bench"])
+		assert.Empty(t, b.loadResults()["bench"].Calibration)
 	})
 }

@@ -4,6 +4,7 @@
 package bench
 
 import (
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -340,4 +341,146 @@ func TestBaseline(t *testing.T) {
 		assert.False(t, report.Significant)
 	}, WithFile(file), WithSamples(2), WithDuration(time.Nanosecond), WithBootstrap(10))
 	assert.Equal(t, previous, (jsonCodec{}).load(file)["bench"], "an inconclusive run must not replace the baseline")
+}
+
+func TestFlags(t *testing.T) {
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	for _, test := range []struct {
+		name   string
+		args   []string
+		filter string
+		dry    bool
+	}{
+		{"separate", []string{"-bench", "read", "-n"}, "read", true},
+		{"dry first", []string{"-n", "-bench", "read"}, "read", true},
+		{"equals", []string{"-bench=write", "-n=true"}, "write", true},
+		{"unrelated prefixes", []string{"-network", "yes", "-benchmark", "other", "-bench=read"}, "read", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			os.Args = append([]string{"bench"}, test.args...)
+			cfg := defaultConfig()
+			initFlags(&cfg)
+			assert.Equal(t, test.filter, cfg.filter)
+			assert.Equal(t, test.dry, cfg.dryRun)
+		})
+	}
+}
+
+func TestRunN(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "batch.json")
+	var ourSamples, refSamples, ourNext, refNext int
+	ourSequence, refSequence := true, true
+	Run(func(b *B) {
+		report := b.RunN("batch", func(i int) int {
+			if i == 0 {
+				ourSamples++
+				ourNext = 0
+			}
+			ourSequence = ourSequence && i == ourNext
+			ourNext = i + 7
+			return 7
+		}, func(i int) int {
+			if i == 0 {
+				refSamples++
+				refNext = 0
+			}
+			refSequence = refSequence && i == refNext
+			refNext = i + 3
+			return 3
+		})
+		assert.Equal(t, "no baseline", report.Inconclusive)
+	}, WithFile(file), WithSamples(3), WithDuration(time.Nanosecond), WithBootstrap(10))
+	assert.Equal(t, 3, ourSamples, "each sample must restart the operation counter")
+	assert.Equal(t, 3, refSamples)
+	assert.True(t, ourSequence, "operation indices must advance by the returned batch size")
+	assert.True(t, refSequence)
+	result := (jsonCodec{}).load(file)["batch"]
+	assert.Len(t, result.Samples, 3)
+	assert.Len(t, result.Calibration, 3)
+	assert.True(t, validSamples(result.Samples))
+	assert.True(t, validSamples(result.Calibration))
+}
+
+type assertion struct {
+	testing.TB
+	failures []string
+}
+
+func (a *assertion) Errorf(format string, args ...any) {
+	a.failures = append(a.failures, fmt.Sprintf(format, args...))
+}
+
+func TestRecord(t *testing.T) {
+	env := captureEnvironment(time.Millisecond)
+	for _, name := range []string{"regression", "improvement", "same", "CPU changed", "setup changed", "repair baseline", "repair rejected", "legacy", "dry run"} {
+		t.Run(name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "baseline.json")
+			baseline := Result{Name: "bench", Environment: env, Timestamp: 1}
+			current := Result{Name: "bench", Environment: env, Timestamp: 2}
+			for i := 0; i < 100; i++ {
+				value := float64((i * 3) % 7)
+				baseline.Samples = append(baseline.Samples, 100+value)
+				baseline.Calibration = append(baseline.Calibration, 10+value/100)
+				current.Samples = append(current.Samples, 125+value)
+				current.Calibration = append(current.Calibration, 10+value/100)
+			}
+			preserved, wantReason := false, ""
+			switch name {
+			case "same":
+				current.Samples = append([]float64(nil), baseline.Samples...)
+			case "improvement":
+				for i := range current.Samples {
+					current.Samples[i] *= 0.5
+				}
+			case "CPU changed":
+				for i := range current.Calibration {
+					current.Calibration[i] *= 1.25
+				}
+				preserved, wantReason = true, "CPU unstable"
+			case "setup changed":
+				current.Environment.GOMAXPROCS++
+				preserved, wantReason = true, "setup changed"
+			case "repair baseline", "repair rejected":
+				baseline.Samples, baseline.Calibration = baseline.Samples[:2], baseline.Calibration[:2]
+				wantReason = "baseline incomplete"
+				if name == "repair rejected" {
+					current.Calibration[0] = math.NaN()
+					preserved = true
+				}
+			case "legacy":
+				baseline.Calibration = nil
+				wantReason = "no calibration"
+			case "dry run":
+				preserved = true
+			}
+			previous := map[string]Result{"bench": baseline, "untouched": {Name: "untouched", Timestamp: 3}}
+			require.NoError(t, (jsonCodec{}).save(file, previous))
+			before, err := os.ReadFile(file)
+			require.NoError(t, err)
+			cfg := defaultConfig()
+			cfg.filename, cfg.codec, cfg.bootstrap = file, jsonCodec{}, 1000
+			cfg.dryRun = name == "dry run"
+			capture := &assertion{TB: t}
+			runner := &B{config: cfg, t: capture}
+			report := runner.record(current, previous, nil)
+			assert.Equal(t, wantReason, report.Inconclusive)
+			if name == "regression" || name == "dry run" {
+				assert.True(t, report.Significant)
+				require.Len(t, capture.failures, 1)
+				assert.Contains(t, capture.failures[0], "bench has a performance regression")
+			} else {
+				assert.Empty(t, capture.failures)
+			}
+			after, err := os.ReadFile(file)
+			require.NoError(t, err)
+			if preserved {
+				assert.Equal(t, before, after, "inconclusive or dry runs must preserve the baseline byte for byte")
+			} else {
+				assert.Equal(t, current, (jsonCodec{}).load(file)["bench"])
+			}
+			assert.Equal(t, previous["untouched"], (jsonCodec{}).load(file)["untouched"])
+			assert.Equal(t, int64(1), previous["bench"].Timestamp, "record must not mutate the caller's baseline")
+		})
+	}
 }

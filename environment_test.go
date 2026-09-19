@@ -4,7 +4,10 @@
 package bench
 
 import (
+	"math"
 	"runtime"
+	"runtime/debug"
+	"runtime/metrics"
 	"testing"
 	"time"
 
@@ -95,4 +98,51 @@ func TestCalibration(t *testing.T) {
 	assert.Equal(t, 1, calibration(17))
 	after := calibrationSink.Load()
 	assert.NotEqual(t, before, after)
+	assert.Zero(t, testing.AllocsPerRun(100, func() { calibration(17) }), "calibration must not add allocation noise")
+}
+
+func TestMetadata(t *testing.T) {
+	valid := captureEnvironment(time.Millisecond)
+	for _, test := range []struct {
+		name   string
+		change func(*Environment)
+	}{
+		{"hostname", func(e *Environment) { e.Hostname = "" }},
+		{"unknown CPU", func(e *Environment) { e.CPUModel = unknownEnvironment }},
+		{"CPU count", func(e *Environment) { e.NumCPU = 0 }},
+		{"parallelism", func(e *Environment) { e.GOMAXPROCS = 0 }},
+		{"duration", func(e *Environment) { e.DurationNS = 0 }},
+		{"version", func(e *Environment) { e.CalibrationVersion++ }},
+		{"build", func(e *Environment) { e.Build = unknownEnvironment }},
+		{"GC", func(e *Environment) { e.GOGC = unknownEnvironment }},
+		{"memory limit", func(e *Environment) { e.GOMEMLIMIT = "" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := valid
+			test.change(&changed)
+			assert.False(t, changed.valid())
+		})
+	}
+	assert.Equal(t, unknownEnvironment, metricValue(metrics.Value{}))
+
+	t.Run("runtime GC settings", func(t *testing.T) {
+		previousGC := debug.SetGCPercent(73)
+		previousLimit := debug.SetMemoryLimit(1 << 30)
+		t.Cleanup(func() {
+			debug.SetGCPercent(previousGC)
+			debug.SetMemoryLimit(previousLimit)
+		})
+		gogc, limit := gcSettings()
+		assert.Equal(t, "73", gogc)
+		assert.Equal(t, "1073741824", limit)
+	})
+
+	t.Run("invalid CPU counters", func(t *testing.T) {
+		before := snapshot{busy: 10, total: 100, valid: true}
+		assert.Equal(t, -1.0, cpuUsage(before, snapshot{}))
+		assert.Equal(t, -1.0, cpuUsage(before, snapshot{busy: math.NaN(), total: 200, valid: true}))
+		assert.Equal(t, -1.0, cpuUsage(before, snapshot{busy: 20, total: math.Inf(1), valid: true}))
+		assert.Zero(t, cpuUsage(before, snapshot{busy: 10, total: 200, valid: true}))
+		assert.Equal(t, 100.0, cpuUsage(before, snapshot{busy: 110, total: 200, valid: true}))
+	})
 }
