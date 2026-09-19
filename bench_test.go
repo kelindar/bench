@@ -160,7 +160,7 @@ func TestRun(t *testing.T) {
 		os.Stdout = oldStdout
 		output, err := io.ReadAll(reader)
 		assert.NoError(t, err)
-		assert.True(t, strings.Contains(string(output), "⚠️ no calibration"), "legacy reference must be inconclusive: %s", output)
+		assert.True(t, strings.Contains(string(output), "❔ changed"), "legacy reference must be inconclusive: %s", output)
 	})
 
 	t.Run("dry run", func(t *testing.T) {
@@ -182,7 +182,7 @@ func TestRun(t *testing.T) {
 			report := b.Run("test_bca", func(i int) {
 				time.Sleep(time.Microsecond) // Simulate some work
 			})
-			assert.Equal(t, "no baseline", report.Inconclusive)
+			assert.Equal(t, "new", report.Inconclusive)
 		}, WithFile(file), WithSamples(10))
 
 		// Verify results file was created
@@ -291,28 +291,28 @@ func TestCompare(t *testing.T) {
 				for i := range current.Calibration {
 					current.Calibration[i] *= 1.25
 				}
-				wantReason = "CPU unstable"
+				wantReason = "uncertain"
 			case "noisy CPU":
 				for i := range current.Calibration {
 					current.Calibration[i] *= 0.5 + float64(i%2)
 				}
-				wantReason = "CPU unstable"
+				wantReason = "uncertain"
 			case "legacy":
 				previous.Calibration = nil
-				wantReason = "no calibration"
+				wantReason = "changed"
 			case "changed setup":
 				current.Environment.GOMAXPROCS++
-				wantReason = "setup changed"
+				wantReason = "changed"
 			case "unknown setup":
 				current.Environment.CPUModel = ""
-				wantReason = "unknown setup"
+				wantReason = "changed"
 			case "invalid calibration":
 				current.Calibration = current.Calibration[:1]
-				wantReason = "invalid calibration"
+				wantReason = "invalid"
 			case "bad baseline":
 				previous.Samples = previous.Samples[:2]
 				previous.Calibration = previous.Calibration[:2]
-				wantReason = "baseline incomplete"
+				wantReason = "uncertain"
 			}
 			cfg := defaultConfig()
 			cfg.bootstrap = 1000
@@ -337,7 +337,7 @@ func TestBaseline(t *testing.T) {
 	require.NoError(t, (jsonCodec{}).save(file, map[string]Result{"bench": previous}))
 	Run(func(b *B) {
 		report := b.Run("bench", func(int) {})
-		assert.Equal(t, "unknown setup", report.Inconclusive)
+		assert.Equal(t, "changed", report.Inconclusive)
 		assert.False(t, report.Significant)
 	}, WithFile(file), WithSamples(2), WithDuration(time.Nanosecond), WithBootstrap(10))
 	assert.Equal(t, previous, (jsonCodec{}).load(file)["bench"], "an inconclusive run must not replace the baseline")
@@ -389,7 +389,7 @@ func TestRunN(t *testing.T) {
 			refNext = i + 3
 			return 3
 		})
-		assert.Equal(t, "no baseline", report.Inconclusive)
+		assert.Equal(t, "new", report.Inconclusive)
 	}, WithFile(file), WithSamples(3), WithDuration(time.Nanosecond), WithBootstrap(10))
 	assert.Equal(t, 3, ourSamples, "each sample must restart the operation counter")
 	assert.Equal(t, 3, refSamples)
@@ -437,20 +437,20 @@ func TestRecord(t *testing.T) {
 				for i := range current.Calibration {
 					current.Calibration[i] *= 1.25
 				}
-				preserved, wantReason = true, "CPU unstable"
+				preserved, wantReason = true, "uncertain"
 			case "setup changed":
 				current.Environment.GOMAXPROCS++
-				preserved, wantReason = true, "setup changed"
+				preserved, wantReason = true, "changed"
 			case "repair baseline", "repair rejected":
 				baseline.Samples, baseline.Calibration = baseline.Samples[:2], baseline.Calibration[:2]
-				wantReason = "baseline incomplete"
+				wantReason = "uncertain"
 				if name == "repair rejected" {
 					current.Calibration[0] = math.NaN()
 					preserved = true
 				}
 			case "legacy":
 				baseline.Calibration = nil
-				wantReason = "no calibration"
+				wantReason = "changed"
 			case "dry run":
 				preserved = true
 			}

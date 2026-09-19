@@ -39,6 +39,9 @@ func TestFormatChange(t *testing.T) {
 
 func TestFormatComparisonCases(t *testing.T) {
 	b := &B{}
+	for _, reason := range []string{"new", "changed", "invalid", "uncertain", "filtered"} {
+		assert.Equal(t, "❔ "+reason, b.formatComparison(Report{Inconclusive: reason}))
+	}
 
 	// Zero means
 	r := Report{}
