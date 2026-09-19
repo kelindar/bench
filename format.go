@@ -19,6 +19,9 @@ const (
 
 // formatComparison formats statistical comparison between two sample sets using BCa bootstrap
 func (r *B) formatComparison(report Report) string {
+	if report.Inconclusive != "" {
+		return "⚠️ " + report.Inconclusive
+	}
 	ratio := report.Ratio
 	if ratio == 0 && report.MedianControl > 0 && report.MedianVariant > 0 {
 		ratio = report.MedianVariant / report.MedianControl

@@ -10,7 +10,7 @@
 
 ## Bench: Statistical Benchmarking for Go
 
-A **small, statistical benchmarking library** for Go, designed for robust, repeatable, and insightful performance analysis using BCa-style bootstrap inference.
+A statistical benchmarking library for Go with saved baselines, CPU calibration, and conservative confidence intervals.
 
 - **Analyze performance** with bias-corrected and accelerated bootstrap intervals for median timing ratios
 - **Persist results** incrementally in Gob format for resilience and tracking
@@ -18,17 +18,45 @@ A **small, statistical benchmarking library** for Go, designed for robust, repea
 - **Format output** in clean, customizable tables
 - **Configurable** thresholds, sampling and other options for precise control
 
-This library applies a **bias-corrected and accelerated** (BCa) bootstrap interval to the median timing ratio between independent sample sets. It resamples the raw measurements **100 000 times** (by default), evaluates `log(variant/control)`, then adjusts the percentile endpoints with bias correction and the multi-sample jackknife acceleration. Working in log-ratio space makes improvements and regressions symmetric and avoids absolute-duration thresholds that behave differently for fast and slow benchmarks.
+This library applies a **bias-corrected and accelerated** (BCa) bootstrap interval to the median timing ratio. It resamples the raw measurements **100 000 times** by default, evaluates `log(variant/control)`, then adjusts the percentile endpoints with bias correction and the multi-sample jackknife acceleration. Working in log-ratio space makes improvements and regressions symmetric.
 
-Good practice is **25+ independent timings**; smaller n inflates the acceleration estimate and can widen intervals. Similarly, very heavy-tailed timing data can erode coverage and may need trimming or more samples. Benchmarks should be collected under stable conditions because CPU frequency changes, thermal drift, background load, cache state, and GC behavior can bias the samples before the bootstrap sees them. Reference comparisons are sampled in alternating order to reduce simple run-order drift.
+BCa can be overconfident with few observations or tied values. The reported interval is therefore widened to include non-interpolated [binomial order-statistic bounds for the two population medians](https://itl.nist.gov/div898/software/dataplot/refman1/auxillar/mediancl.htm). Each of the four tails receives one quarter of the error budget. Under independent, identically distributed observations, these bounds provide at least the requested coverage. This is deliberately conservative: at the default 99.9% confidence, fewer than 12 observations in either group cannot establish a change, regardless of the number of bootstrap resamples.
+
+Timings must be finite and positive. An exact lower-tail [runs test](https://www.itl.nist.gov/div898/handbook/eda/section3/eda35d.htm) at 1% screens for clustering above and below the median, omitting ties. Detected clustering produces `correlated timings`. This screen catches some drift and serial dependence; passing it does **not** prove independence. Confidence levels apply to individual comparisons, not to an entire benchmark suite or repeated CI runs.
 
 The practical threshold is interpreted as a symmetric multiplicative timing ratio in log space: `WithThreshold(5)` requires the whole confidence interval to clear `log(1.05)` for regressions or `-log(1.05)` for improvements. Allocation indicators are simple median comparisons and are not confidence intervals.
+
+### Comparing saved baselines under CPU load
+
+Every run records the hostname, CPU model, OS/architecture, Go version, selected build flags, CPU count, GOMAXPROCS, live GC settings, sample duration, and calibration version. [gopsutil](https://github.com/shirou/gopsutil) supplies CPU model and utilization measurements. `CPUUsage` is the average system utilization during collection, including the benchmark itself; `-1` means unavailable.
+
+A fixed CPU workload is sampled once per benchmark sample, alternating before and after the benchmark. Saved-baseline comparisons require matching environment metadata and a calibration confidence interval entirely within the tolerance set by `WithThreshold`, 5% by default. Calibration approximately doubles sampling time for a benchmark without a live reference. Raw benchmark timings and allocation counts exclude the calibration work.
+
+The library keeps the measured timing ratio and reports an inconclusive reason when it cannot support a verdict:
+
+| Output | Meaning |
+|--------|---------|
+| `⚠️ CPU unstable` | Calibration changed, is too uncertain, or failed the clustering screen. |
+| `⚠️ setup changed` | Machine, runtime, build settings, or sample duration differ. |
+| `⚠️ no calibration` | A saved file predates calibration metadata. Run once without `WithDryRun` to refresh it. |
+| `⚠️ baseline incomplete` | The baseline has too few, invalid, or clustered samples. A usable writable run refreshes it. |
+| `⚠️ unknown setup` | Required environment metadata is unavailable. |
+| `⚠️ correlated timings` | Benchmark timings are clustered in collection order. |
+| `⚠️ too few samples` | The requested confidence needs more observations. |
+| `⚠️ uncertain` | The interval supports neither a practical change nor equivalence within the tolerance. |
+| `🟰 similar` | The entire interval is within the practical tolerance. |
+
+Inconclusive comparisons have `Report.Significant == false` and a nonempty `Report.Inconclusive`. They preserve a usable saved baseline. Legacy files and inadequate baselines can be refreshed by a writable run; an inadequate baseline is replaced only when the new samples pass the quality checks. For an intentional environment change, use a new baseline filename. Saved reference files receive the same checks. Live references still run in alternating order and use conservative median bounds.
+
+The returned `Report` describes the comparison with the previous saved result. A first run prints `new` and returns `Inconclusive: "no baseline"`; a filtered benchmark returns `Inconclusive: "filtered"`.
+
+Calibration is a comparability check, not a correction factor. An integer CPU workload cannot account for every cache, memory, I/O, thermal, or scheduling effect. CPU utilization is diagnostic only. Keep baseline and current runs as comparable as possible; use a dedicated runner when small regressions must be distinguished reliably. Increasing bootstrap resamples cannot repair biased or dependent measurements.
 
 
 **Use When**
 
 * ✅ You want confidence-aware performance comparisons between Go implementations
-* ✅ You need publication-quality statistical analysis with confidence intervals
+* ✅ You want conservative confidence intervals with explicit inconclusive results
 * ✅ You need incremental, resilient result saving (e.g., for CI or long runs)
 * ✅ You want to compare against previous or reference runs with clear significance
 * ✅ You prefer clean, readable output and easy filtering
@@ -85,6 +113,8 @@ To compare against another run saved as `.gob`, omit the reference function and 
 
 Use `bench.Assert` inside your tests to automatically fail when a benchmark regresses compared to the previously recorded results. Assertions run in dry-run mode by default and are skipped when tests are executed with the `-short` flag.
 
+Only a supported regression fails the test. An inconclusive result is printed and returned without failing; this is **not** evidence that performance passed. CI callers that require a conclusive result can check `Report.Inconclusive` and apply their own retry or failure policy. Establish the baseline with a writable `bench.Run` first.
+
 ```go
 func TestPerformance(t *testing.T) {
     bench.Assert(t, func(b *bench.B) {
@@ -108,7 +138,7 @@ The benchmark runner can be customized with a set of option functions. The table
 | `WithReference` | Enables the reference comparison column. Pass a saved `.gob` or JSON filename to compare against stored results, or pass a reference implementation to `b.Run`. |
 | `WithDryRun` | Prevents the library from writing results to disk. This option is useful for quick experiments or CI jobs where you just want to see the formatted output without updating any files. |
 | `WithConfidence` | Sets the confidence level (in percent) for significance testing. Higher values make it harder for a difference to be considered statistically significant. |
-| `WithThreshold` | Sets the minimum practical timing-ratio change (in percent) required before a statistically significant interval is reported as an improvement or regression. Raising this value is useful when unchanged code still shows run-to-run movement from machine noise. |
+| `WithThreshold` | Sets the minimum practical timing-ratio change and the allowed CPU calibration variation, in percent. Defaults to 5%. Zero requires exact calibration equivalence and is generally unsuitable for saved-baseline comparisons. |
 | `WithBootstrap` | Sets how many bootstrap resamples are used for comparisons. Increase this when using very high confidence levels; lower it for faster exploratory runs. |
 | `WithSeed` | Mixes a user-provided seed into the deterministic bootstrap RNG. The default remains reproducible based on sample counts and bootstrap count. |
 

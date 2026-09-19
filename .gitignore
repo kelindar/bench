@@ -1,2 +1,5 @@
 bench.gob
 bench.json
+/coverage
+/coverage.out
+/profile.cov
