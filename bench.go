@@ -38,10 +38,13 @@ func defaultConfig() config {
 
 // Result represents a single benchmark result
 type Result struct {
-	Name      string    `json:"name"`
-	Samples   []float64 `json:"samples"`
-	Allocs    []float64 `json:"allocs"`
-	Timestamp int64     `json:"timestamp"`
+	Name        string      `json:"name"`
+	Samples     []float64   `json:"samples"`
+	Allocs      []float64   `json:"allocs"`
+	Timestamp   int64       `json:"timestamp"`
+	Environment Environment `json:"environment"`
+	Calibration []float64   `json:"calibration,omitempty"` // CPU calibration timings, in collection order
+	CPUUsage    float64     `json:"cpuUsage"`              // Average system utilization in percent; -1 if unavailable
 }
 
 // B manages benchmarks and handles persistence
@@ -86,41 +89,38 @@ func (r *B) shouldRun(name string) bool {
 	return strings.HasPrefix(name, r.filter)
 }
 
-// benchmark runs a function repeatedly and returns performance samples
-func (r *B) benchmark(fn func(op int) int) (timing []float64, allocs []float64) {
-	timing = make([]float64, 0, r.samples)
-	allocs = make([]float64, 0, r.samples)
-
-	for i := 0; i < r.samples; i++ {
-		nsPerOp, allocsPerOp := r.sample(fn)
-		timing = append(timing, nsPerOp)
-		allocs = append(allocs, allocsPerOp)
-	}
-	return timing, allocs
-}
-
-func (r *B) benchmarkPair(ourFn, refFn func(op int) int) (ourTiming, ourAllocs, refTiming, refAllocs []float64) {
+func (r *B) benchmarkPair(ourFn, refFn func(op int) int) (ourTiming, ourAllocs, refTiming, calibrations []float64) {
 	ourTiming = make([]float64, 0, r.samples)
 	ourAllocs = make([]float64, 0, r.samples)
-	refTiming = make([]float64, 0, r.samples)
-	refAllocs = make([]float64, 0, r.samples)
+	calibrations = make([]float64, 0, r.samples)
+	if refFn != nil {
+		refTiming = make([]float64, 0, r.samples)
+	}
 
 	for i := 0; i < r.samples; i++ {
-		var ourNS, ourAlloc, refNS, refAlloc float64
+		var ourNS, ourAlloc, refNS, calibrationNS float64
 		if i%2 == 0 {
+			calibrationNS, _ = r.sample(calibration)
 			ourNS, ourAlloc = r.sample(ourFn)
-			refNS, refAlloc = r.sample(refFn)
+			if refFn != nil {
+				refNS, _ = r.sample(refFn)
+			}
 		} else {
-			refNS, refAlloc = r.sample(refFn)
+			if refFn != nil {
+				refNS, _ = r.sample(refFn)
+			}
 			ourNS, ourAlloc = r.sample(ourFn)
+			calibrationNS, _ = r.sample(calibration)
 		}
 
 		ourTiming = append(ourTiming, ourNS)
 		ourAllocs = append(ourAllocs, ourAlloc)
-		refTiming = append(refTiming, refNS)
-		refAllocs = append(refAllocs, refAlloc)
+		calibrations = append(calibrations, calibrationNS)
+		if refFn != nil {
+			refTiming = append(refTiming, refNS)
+		}
 	}
-	return ourTiming, ourAllocs, refTiming, refAllocs
+	return
 }
 
 func (r *B) sample(fn func(op int) int) (nsPerOp, allocsPerOp float64) {
@@ -184,23 +184,17 @@ func (r *B) RunN(name string, ourFn func(i int) int, refFn ...func(i int) int) R
 
 func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report Report) {
 	if !r.shouldRun(name) {
-		return
+		return Report{Inconclusive: "filtered"}
 	}
 
 	// Load previous results for delta comparison
 	prevResults := r.loadResults()
 
-	var ourSamples, ourAllocs, refSamples []float64
+	environment := captureEnvironment(r.duration)
+	cpuBefore := cpuSnapshot()
+	ourSamples, ourAllocs, refSamples, calibrations := r.benchmarkPair(ourFn, refFn)
+	usage := cpuUsage(cpuBefore, cpuSnapshot())
 	hasRef := refFn != nil
-	if refFn != nil {
-		ourSamples, ourAllocs, refSamples, _ = r.benchmarkPair(ourFn, refFn)
-	} else if refResult, ok := r.loadReferenceResults()[name]; ok {
-		ourSamples, ourAllocs = r.benchmark(ourFn)
-		refSamples = refResult.Samples
-		hasRef = true
-	} else {
-		ourSamples, ourAllocs = r.benchmark(ourFn)
-	}
 	nsPerOp := median(ourSamples)
 	opsPerSec := 1e9 / nsPerOp
 
@@ -209,18 +203,22 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 
 	// Create result
 	result := Result{
-		Name:      name,
-		Samples:   ourSamples,
-		Allocs:    ourAllocs,
-		Timestamp: time.Now().Unix(),
+		Name:        name,
+		Samples:     ourSamples,
+		Allocs:      ourAllocs,
+		Timestamp:   time.Now().Unix(),
+		Environment: environment,
+		Calibration: calibrations,
+		CPUUsage:    usage,
 	}
 
 	// Calculate delta vs previous run
 	prevResult, exists := prevResults[name]
 	vsPrev := "new"
 	allocsChange := allocUnknown
+	report.Inconclusive = "no baseline"
 	if exists {
-		report = bcaWithSeed(prevResult.Samples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold, r.seed)
+		report = r.compare(prevResult, result)
 		vsPrev = r.formatComparison(report)
 		allocsChange = compareAllocs(prevResult.Allocs, ourAllocs)
 		if r.t != nil && report.Significant && report.Delta > 0 {
@@ -233,6 +231,8 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	if hasRef {
 		report := bcaWithSeed(refSamples, ourSamples, r.confidence/100.0, r.bootstrap, r.threshold, r.seed)
 		vsRef = r.formatComparison(report)
+	} else if refResult, ok := r.loadReferenceResults()[name]; ok {
+		vsRef = r.formatComparison(r.compare(refResult, result))
 	}
 
 	// Format and display result
@@ -243,12 +243,60 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 		vsPrev,
 		vsRef)
 
-	// Save result incrementally
-	r.saveResult(result)
+	// Keep a comparable baseline when a run is inconclusive. Legacy files get
+	// one fresh baseline with calibration metadata on the next writable run.
+	if !exists || report.Inconclusive == "" || report.Inconclusive == "no calibration" ||
+		(report.Inconclusive == "baseline incomplete" && r.usable(result)) {
+		r.saveResult(result)
+	}
 	return
 }
 
-// Assert runs benchmarks in dry-run mode and fails the test if performance regresses.
+// compare retains the measured effect but withholds a verdict unless the saved
+// and current runs have compatible environments and equivalent CPU calibration.
+func (r *B) compare(previous, current Result) Report {
+	report := bcaWithSeed(previous.Samples, current.Samples, r.confidence/100, r.bootstrap, r.threshold, r.seed)
+	reason := ""
+	switch {
+	case len(previous.Calibration) == 0 || len(current.Calibration) == 0:
+		reason = "no calibration"
+	case !previous.Environment.valid() || !current.Environment.valid():
+		reason = "unknown setup"
+	case previous.Environment != current.Environment:
+		reason = "setup changed"
+	case len(previous.Calibration) != len(previous.Samples) || len(current.Calibration) != len(current.Samples):
+		reason = "invalid calibration"
+	case !r.usable(previous):
+		reason = "baseline incomplete"
+	default:
+		calibration := bcaWithSeed(previous.Calibration, current.Calibration, r.confidence/100, r.bootstrap, r.threshold, r.seed)
+		margin := 1 + r.threshold/100
+		if calibration.Inconclusive != "" || calibration.RatioCI[0] < 1/margin || calibration.RatioCI[1] > margin {
+			reason = "CPU unstable"
+		}
+	}
+	if reason != "" {
+		report.Significant = false
+		report.Inconclusive = reason
+	}
+	return report
+}
+
+// usable permits replacing an inadequate baseline once a run has enough valid,
+// unclustered observations. It does not establish cross-run equivalence.
+func (r *B) usable(result Result) bool {
+	if !result.Environment.valid() || len(result.Calibration) != len(result.Samples) ||
+		!validSamples(result.Samples) || !validSamples(result.Calibration) ||
+		clustered(result.Samples, median(result.Samples)) || clustered(result.Calibration, median(result.Calibration)) {
+		return false
+	}
+	lower, _ := medianInterval(result.Samples, (1-r.confidence/100)/4)
+	return lower > 0
+}
+
+// Assert runs benchmarks in dry-run mode and fails the test on a supported
+// regression. Inconclusive comparisons are reported without failing the test;
+// callers can inspect Report.Inconclusive to enforce a stricter policy.
 // It is skipped when testing is run with -short.
 func Assert(t testing.TB, fn func(*B), opts ...Option) {
 	t.Helper()

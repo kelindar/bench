@@ -7,11 +7,13 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfig(t *testing.T) {
@@ -111,7 +113,8 @@ func TestRun(t *testing.T) {
 		var ran, ranRef bool
 		Run(func(b *B) {
 			b.Run("foo", func(i int) { ran = true })
-			b.Run("bar", func(i int) {}, func(i int) { ranRef = true })
+			report := b.Run("bar", func(i int) {}, func(i int) { ranRef = true })
+			assert.Equal(t, "filtered", report.Inconclusive)
 		}, WithFile(file), WithFilter("foo"))
 		assert.True(t, ran, "filtered benchmark did not run")
 		assert.False(t, ranRef, "filtered out benchmark ran")
@@ -156,7 +159,7 @@ func TestRun(t *testing.T) {
 		os.Stdout = oldStdout
 		output, err := io.ReadAll(reader)
 		assert.NoError(t, err)
-		assert.True(t, strings.Contains(string(output), "🟰 similar"), "reference comparison was not printed: %s", output)
+		assert.True(t, strings.Contains(string(output), "⚠️ no calibration"), "legacy reference must be inconclusive: %s", output)
 	})
 
 	t.Run("dry run", func(t *testing.T) {
@@ -175,9 +178,10 @@ func TestRun(t *testing.T) {
 
 		// Test that benchmark execution works with BCa bootstrap (always enabled)
 		Run(func(b *B) {
-			b.Run("test_bca", func(i int) {
+			report := b.Run("test_bca", func(i int) {
 				time.Sleep(time.Microsecond) // Simulate some work
 			})
+			assert.Equal(t, "no baseline", report.Inconclusive)
 		}, WithFile(file), WithSamples(10))
 
 		// Verify results file was created
@@ -235,7 +239,7 @@ func TestRun(t *testing.T) {
 func TestBCaBootstrap(t *testing.T) {
 	// Create test data with known difference
 	control := []float64{10.0, 12.0, 11.0, 13.0, 9.0, 11.5, 10.5, 12.5}
-	experiment := []float64{8.0, 9.0, 7.5, 8.5, 7.0, 8.0, 9.5, 8.2}
+	experiment := []float64{6.0, 7.0, 5.5, 6.5, 5.0, 6.0, 7.5, 6.2}
 
 	// Run BCa bootstrap with 95% confidence
 	result := bca(control, experiment, 0.95, 1000, defaultThreshold)
@@ -254,4 +258,86 @@ func TestBCaBootstrap(t *testing.T) {
 	result2 := bca(identical, identical, 0.95, 1000, defaultThreshold)
 	assert.False(t, result2.Significant, "Identical data should not be significant")
 	assert.InDelta(t, 0.0, result2.Delta, 0.001, "Delta should be near zero for identical data")
+}
+
+func TestCompare(t *testing.T) {
+	env := Environment{Hostname: "test", GOOS: "test", GOARCH: "test", GoVersion: "test",
+		CPUModel: "test", NumCPU: 8, GOMAXPROCS: 8, DurationNS: 10000000, CalibrationVersion: calibrationVersion,
+		Build: "test", GOGC: "100", GOMEMLIMIT: "9223372036854775807"}
+	for _, name := range []string{"same", "regression", "improvement", "busy CPU", "noisy CPU", "legacy", "changed setup", "unknown setup", "invalid calibration", "bad baseline"} {
+		t.Run(name, func(t *testing.T) {
+			previous := Result{Environment: env}
+			current := Result{Environment: env}
+			for i := 0; i < 100; i++ {
+				previous.Samples = append(previous.Samples, 100+float64((i*3)%7))
+				current.Samples = append(current.Samples, 100+float64((i*3)%7))
+				previous.Calibration = append(previous.Calibration, 10+float64((i*3)%7)/100)
+				current.Calibration = append(current.Calibration, 10+float64((i*3)%7)/100)
+			}
+			wantReason := ""
+			switch name {
+			case "regression", "busy CPU", "noisy CPU", "legacy", "changed setup", "unknown setup", "invalid calibration":
+				for i := range current.Samples {
+					current.Samples[i] *= 1.25
+				}
+			case "improvement":
+				for i := range current.Samples {
+					current.Samples[i] *= 0.8
+				}
+			}
+			switch name {
+			case "busy CPU":
+				for i := range current.Calibration {
+					current.Calibration[i] *= 1.25
+				}
+				wantReason = "CPU unstable"
+			case "noisy CPU":
+				for i := range current.Calibration {
+					current.Calibration[i] *= 0.5 + float64(i%2)
+				}
+				wantReason = "CPU unstable"
+			case "legacy":
+				previous.Calibration = nil
+				wantReason = "no calibration"
+			case "changed setup":
+				current.Environment.GOMAXPROCS++
+				wantReason = "setup changed"
+			case "unknown setup":
+				current.Environment.CPUModel = ""
+				wantReason = "unknown setup"
+			case "invalid calibration":
+				current.Calibration = current.Calibration[:1]
+				wantReason = "invalid calibration"
+			case "bad baseline":
+				previous.Samples = previous.Samples[:2]
+				previous.Calibration = previous.Calibration[:2]
+				wantReason = "baseline incomplete"
+			}
+			cfg := defaultConfig()
+			cfg.bootstrap = 1000
+			runner := &B{config: cfg}
+			report := runner.compare(previous, current)
+			assert.Equal(t, wantReason, report.Inconclusive)
+			assert.Equal(t, name == "regression" || name == "improvement", report.Significant)
+			if name == "busy CPU" {
+				assert.InDelta(t, 1.25, report.Ratio, 1e-12, "retain the raw slowdown, do not normalize it away")
+			}
+			if name == "bad baseline" {
+				assert.False(t, runner.usable(previous))
+				assert.True(t, runner.usable(current), "a fresh run can repair an inadequate baseline")
+			}
+		})
+	}
+}
+
+func TestBaseline(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "baseline.json")
+	previous := Result{Name: "bench", Samples: []float64{1, 2}, Calibration: []float64{1, 2}, Timestamp: 123}
+	require.NoError(t, (jsonCodec{}).save(file, map[string]Result{"bench": previous}))
+	Run(func(b *B) {
+		report := b.Run("bench", func(int) {})
+		assert.Equal(t, "unknown setup", report.Inconclusive)
+		assert.False(t, report.Significant)
+	}, WithFile(file), WithSamples(2), WithDuration(time.Nanosecond), WithBootstrap(10))
+	assert.Equal(t, previous, (jsonCodec{}).load(file)["bench"], "an inconclusive run must not replace the baseline")
 }

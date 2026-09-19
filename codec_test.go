@@ -5,57 +5,41 @@ package bench
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSaveLoadResult(t *testing.T) {
-	file := "test_codec.json"
-	defer os.Remove(file)
-	b := &B{config: config{filename: file, codec: jsonCodec{}}}
-	res := Result{Name: "bench", Samples: []float64{1, 2, 3}, Allocs: []float64{0, 1, 1}, Timestamp: 123}
-	b.saveResult(res)
-	loaded := b.loadResults()
-	if loaded["bench"].Timestamp != 123 {
-		t.Fatalf("expected timestamp 123")
-	}
-	if len(loaded["bench"].Allocs) != 3 {
-		t.Fatalf("expected alloc samples to be persisted")
-	}
-}
-
-func TestGobCodec(t *testing.T) {
-	file := "test_codec.gob"
-	defer os.Remove(file)
-	b := &B{config: config{filename: file, codec: gobCodec{}}}
-	res := Result{Name: "bench", Samples: []float64{1, 2, 3}, Allocs: []float64{0, 1, 1}, Timestamp: 321}
-	b.saveResult(res)
-	loaded := b.loadResults()
-	if loaded["bench"].Timestamp != 321 {
-		t.Fatalf("expected timestamp 321")
-	}
-	if len(loaded["bench"].Allocs) != 3 {
-		t.Fatalf("expected alloc samples to be persisted")
+	for _, extension := range []string{"json", "gob"} {
+		t.Run(extension, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "bench."+extension)
+			b := &B{config: config{filename: file, codec: codecFor(file)}}
+			res := Result{Name: "bench", Samples: []float64{1, 2, 3}, Allocs: []float64{0, 1, 1}, Timestamp: 123,
+				Calibration: []float64{10, 11, 12}, CPUUsage: 18.5,
+				Environment: Environment{CPUModel: "test", CalibrationVersion: calibrationVersion, Build: "test"}}
+			b.saveResult(res)
+			assert.Equal(t, res, b.loadResults()["bench"])
+		})
 	}
 }
 
 func TestCodec(t *testing.T) {
 	t.Run("json load error", func(t *testing.T) {
 		file := "bad.json"
-		os.WriteFile(file, []byte("bad"), 0644)
+		require.NoError(t, os.WriteFile(file, []byte("bad"), 0644))
 		defer os.Remove(file)
 		res := jsonCodec{}.load(file)
-		if len(res) != 0 {
-			t.Fatalf("expected empty result")
-		}
+		assert.Empty(t, res)
 	})
 
 	t.Run("gob load error", func(t *testing.T) {
 		file := "bad.gob"
-		os.WriteFile(file, []byte("bad"), 0644)
+		require.NoError(t, os.WriteFile(file, []byte("bad"), 0644))
 		defer os.Remove(file)
 		res := gobCodec{}.load(file)
-		if len(res) != 0 {
-			t.Fatalf("expected empty result")
-		}
+		assert.Empty(t, res)
 	})
 }

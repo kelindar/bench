@@ -123,6 +123,8 @@ func WithConfidence(level float64) Option {
 
 // WithThreshold sets the minimum practical change, in percent, required before
 // a statistically significant interval is reported as an improvement/regression.
+// It also sets the allowed calibration variation when comparing saved runs.
+// The default is 5%; zero requires exact calibration equivalence.
 func WithThreshold(percent float64) Option {
 	return func(c *config) {
 		if !isFinite(percent) || percent < 0 {
