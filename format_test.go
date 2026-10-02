@@ -37,41 +37,59 @@ func TestFormatChange(t *testing.T) {
 	assert.Equal(t, "+10%", out)
 }
 
-func TestFormatComparisonCases(t *testing.T) {
+func TestFormatComparison(t *testing.T) {
 	b := &B{}
 	for _, reason := range []string{"new", "changed", "invalid", "uncertain", "filtered"} {
-		assert.Equal(t, "❔ "+reason, b.formatComparison(Report{Inconclusive: reason}))
+		t.Run("inconclusive "+reason, func(t *testing.T) {
+			assert.Equal(t, "❔ "+reason, b.formatComparison(Report{Inconclusive: reason}))
+		})
 	}
 
-	// Zero means
-	r := Report{}
-	assert.Equal(t, "🟰 similar", b.formatComparison(r))
-
-	// Variant extremely slower
-	r = Report{MedianControl: 1, MedianVariant: 2000, Significant: true}
-	assert.Equal(t, "❌ uncomparable", b.formatComparison(r))
-
-	// Variant extremely faster
-	r = Report{MedianControl: 1000, MedianVariant: 0.5, Significant: true}
-	assert.Equal(t, "✅ uncomparable", b.formatComparison(r))
-
-	// Typical improvement without a confidence interval suffix
-	r = Report{MedianControl: 100, MedianVariant: 50, Ratio: 0.5, RatioCI: [2]float64{0.4, 0.6}, Significant: true}
-	out := b.formatComparison(r)
-	assert.Equal(t, "✅ +100%", out)
-	assert.NotContains(t, out, "[")
+	tests := map[string]struct {
+		report Report
+		want   string
+	}{
+		"zero medians": {
+			report: Report{},
+			want:   "🟰 similar",
+		},
+		"variant extremely slower": {
+			report: Report{MedianControl: 1, MedianVariant: 2000, Significant: true},
+			want:   "❌ uncomparable",
+		},
+		"variant extremely faster": {
+			report: Report{MedianControl: 1000, MedianVariant: 0.5, Significant: true},
+			want:   "✅ uncomparable",
+		},
+		"improvement without interval suffix": {
+			report: Report{MedianControl: 100, MedianVariant: 50, Ratio: 0.5, RatioCI: [2]float64{0.4, 0.6}, Significant: true},
+			want:   "✅ +100%",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, b.formatComparison(tc.report))
+		})
+	}
 }
 
 func TestCompareAllocs(t *testing.T) {
-	assert.Equal(t, allocUnknown, compareAllocs(nil, []float64{1}))
-	assert.Equal(t, allocSame, compareAllocs([]float64{1, 1, 1}, []float64{1, 1, 1}))
-	assert.Equal(t, allocBetter, compareAllocs([]float64{2, 2, 2}, []float64{1, 1, 1}))
-	assert.Equal(t, allocWorse, compareAllocs([]float64{1, 1, 1}, []float64{2, 2, 2}))
-
-	// Float medians can differ while the displayed alloc count stays the same.
-	assert.Equal(t, allocSame, compareAllocs([]float64{35.8, 36.2}, []float64{36.1, 35.9}))
-	for _, values := range [][2]float64{{35.5, 36.5}, {1501, 1548}, {0.1, 0.9}} {
-		assert.Equal(t, formatAllocs(values[0]), formatAllocs(values[1]))
-		assert.Equal(t, allocSame, compareAllocs([]float64{values[0]}, []float64{values[1]}))
+	tests := map[string]struct {
+		previous, current []float64
+		want              allocChange
+	}{
+		"missing previous":        {nil, []float64{1}, allocUnknown},
+		"same":                    {[]float64{1, 1, 1}, []float64{1, 1, 1}, allocSame},
+		"better":                  {[]float64{2, 2, 2}, []float64{1, 1, 1}, allocBetter},
+		"worse":                   {[]float64{1, 1, 1}, []float64{2, 2, 2}, allocWorse},
+		"same displayed median":   {[]float64{35.8, 36.2}, []float64{36.1, 35.9}, allocSame},
+		"same displayed rounding": {[]float64{35.5}, []float64{36.5}, allocSame},
+		"same displayed thousand": {[]float64{1501}, []float64{1548}, allocSame},
+		"same displayed fraction": {[]float64{0.1}, []float64{0.9}, allocSame},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, compareAllocs(tc.previous, tc.current))
+		})
 	}
 }

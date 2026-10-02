@@ -5,6 +5,7 @@ package bench
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"testing"
@@ -75,17 +76,14 @@ func (r *B) printHeader() {
 	if r.showRef {
 		fmt.Printf(r.tableFmt, "name", "time/op", "ops/s", "allocs/op", "vs prev", "vs ref")
 		fmt.Printf(r.tableFmt, "--------------------", "------------", "------------", "------------", "------------------", "------------------")
-	} else {
-		fmt.Printf("%-20s %-12s %-12s %-12s %-18s\n", "name", "time/op", "ops/s", "allocs/op", "vs prev")
-		fmt.Printf("%-20s %-12s %-12s %-12s %-18s\n", "--------------------", "------------", "------------", "------------", "------------------")
+		return
 	}
+	fmt.Printf("%-20s %-12s %-12s %-12s %-18s\n", "name", "time/op", "ops/s", "allocs/op", "vs prev")
+	fmt.Printf("%-20s %-12s %-12s %-12s %-18s\n", "--------------------", "------------", "------------", "------------", "------------------")
 }
 
 // shouldRun checks if a benchmark matches the filter
 func (r *B) shouldRun(name string) bool {
-	if r.filter == "" {
-		return true
-	}
 	return strings.HasPrefix(name, r.filter)
 }
 
@@ -99,13 +97,14 @@ func (r *B) benchmarkPair(ourFn, refFn func(op int) int) (ourTiming, ourAllocs, 
 
 	for i := 0; i < r.samples; i++ {
 		var ourNS, ourAlloc, refNS, calibrationNS float64
-		if i%2 == 0 {
+		switch {
+		case i%2 == 0:
 			calibrationNS, _ = r.sample(calibration)
 			ourNS, ourAlloc = r.sample(ourFn)
 			if refFn != nil {
 				refNS, _ = r.sample(refFn)
 			}
-		} else {
+		default:
 			if refFn != nil {
 				refNS, _ = r.sample(refFn)
 			}
@@ -148,15 +147,12 @@ func (r *B) sample(fn func(op int) int) (nsPerOp, allocsPerOp float64) {
 }
 
 func addOps(total, n int) int {
-	if n <= 0 {
+	switch {
+	case n <= 0:
 		panic("bench: RunN function must return a positive operation count")
-	}
-
-	maxInt := int(^uint(0) >> 1)
-	if n > maxInt-total {
+	case n > math.MaxInt-total:
 		panic("bench: RunN operation count overflow")
 	}
-
 	return total + n
 }
 
@@ -208,8 +204,8 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	return r.record(result, prevResults, refSamples)
 }
 
-// record compares collected measurements, reports assertions, and updates a
-// usable baseline. Input results are read-only; persistence uses the codec.
+// record compares collected measurements, reports assertions, and stores the
+// latest usable run. Input results are read-only; persistence uses the codec.
 func (r *B) record(result Result, previous map[string]Result, refSamples []float64) (report Report) {
 	name := result.Name
 	nsPerOp := median(result.Samples)
@@ -247,19 +243,13 @@ func (r *B) record(result Result, previous map[string]Result, refSamples []float
 		vsPrev,
 		vsRef)
 
-	// Keep comparable timings when a run is inconclusive. Legacy files get
-	// one fresh baseline with calibration metadata on the next writable run.
-	if !exists || report.Inconclusive == "" ||
-		len(prevResult.Calibration) == 0 || len(result.Calibration) == 0 ||
-		(report.Inconclusive == "uncertain" &&
-			prevResult.Environment.valid() && result.Environment.valid() &&
-			prevResult.Environment == result.Environment &&
-			len(prevResult.Calibration) == len(prevResult.Samples) &&
-			len(result.Calibration) == len(result.Samples) &&
-			!r.usable(prevResult) && r.usable(result)) {
+	// "vs prev" follows the latest usable run, including inconclusive timings.
+	// Comparability governs the verdict, not whether to freeze old measurements.
+	switch {
+	case !exists || r.usable(result):
 		r.saveResult(result)
-	} else if len(result.Allocs) > 0 && prevResult.Environment.valid() &&
-		result.Environment.valid() && prevResult.Environment == result.Environment {
+	case len(result.Allocs) > 0 && prevResult.Environment.valid() &&
+		result.Environment.valid() && prevResult.Environment == result.Environment:
 		// Allocation icons compare the latest run even when its timings are
 		// inconclusive. The timing baseline and its timestamp stay together.
 		prevResult.Allocs = result.Allocs
@@ -298,8 +288,8 @@ func (r *B) compare(previous, current Result) Report {
 	return report
 }
 
-// usable permits replacing an inadequate baseline once a run has enough valid
-// observations or blocks. It does not establish cross-run equivalence.
+// usable permits saving a run with enough valid observations or blocks.
+// It does not establish cross-run equivalence.
 func (r *B) usable(result Result) bool {
 	if !result.Environment.valid() || len(result.Calibration) != len(result.Samples) ||
 		!validSamples(result.Samples) || !validSamples(result.Calibration) {

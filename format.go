@@ -80,13 +80,14 @@ func formatTime(nsPerOp float64) string {
 
 // formatOps formats operations per second
 func formatOps(opsPerSec float64) string {
-	if opsPerSec >= 1000000 {
+	switch {
+	case opsPerSec >= 1000000:
 		return fmt.Sprintf("%.1fM", opsPerSec/1000000)
-	}
-	if opsPerSec >= 1000 {
+	case opsPerSec >= 1000:
 		return fmt.Sprintf("%.1fK", opsPerSec/1000)
+	default:
+		return fmt.Sprintf("%.0f", opsPerSec)
 	}
-	return fmt.Sprintf("%.0f", opsPerSec)
 }
 
 // formatAllocs formats number of allocations per operation
