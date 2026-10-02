@@ -164,9 +164,10 @@ func clustered(data []float64, center float64) bool {
 	p := 0.0
 	for r := 2; r <= runs; r++ {
 		k := r / 2
-		if r%2 == 0 {
+		switch {
+		case r%2 == 0:
 			p += 2 * math.Exp(logChoose(below-1, k-1)+logChoose(above-1, k-1)-denominator)
-		} else {
+		default:
 			p += math.Exp(logChoose(below-1, k) + logChoose(above-1, k-1) - denominator)
 			p += math.Exp(logChoose(below-1, k-1) + logChoose(above-1, k) - denominator)
 		}
@@ -335,9 +336,10 @@ func computeBiasCorrection(originalStat float64, bootstrapStats []float64) float
 	proportion := (float64(less) + 0.5*float64(equal)) / float64(len(bootstrapStats))
 
 	// Avoid edge cases
-	if proportion <= 0 {
+	switch {
+	case proportion <= 0:
 		proportion = 1.0 / (2.0 * float64(len(bootstrapStats)))
-	} else if proportion >= 1 {
+	case proportion >= 1:
 		proportion = 1.0 - 1.0/(2.0*float64(len(bootstrapStats)))
 	}
 

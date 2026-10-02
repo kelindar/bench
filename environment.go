@@ -4,6 +4,7 @@
 package bench
 
 import (
+	"cmp"
 	"math/bits"
 	"os"
 	"runtime"
@@ -79,10 +80,7 @@ func cpuModel() string {
 		return unknownEnvironment
 	}
 	for _, item := range info {
-		if model := strings.TrimSpace(item.ModelName); model != "" {
-			return model
-		}
-		if model := strings.TrimSpace(item.Model); model != "" {
+		if model := cmp.Or(strings.TrimSpace(item.ModelName), strings.TrimSpace(item.Model)); model != "" {
 			return model
 		}
 	}
