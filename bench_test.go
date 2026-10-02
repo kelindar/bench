@@ -261,6 +261,20 @@ func TestBCaBootstrap(t *testing.T) {
 	assert.InDelta(t, 0.0, result2.Delta, 0.001, "Delta should be near zero for identical data")
 }
 
+func TestDefaultComparison(t *testing.T) {
+	// Recorded sign/v4 timings reproduce an interval too wide at 99.9%.
+	// Replaying one distribution checks defaults, not independent-run coverage.
+	result := (jsonCodec{}).load("testdata/sign.json")["sign/v4"]
+	require.Len(t, result.Samples, 100)
+	cfg := defaultConfig()
+	report := bca(result.Samples, result.Samples, cfg.confidence/100, cfg.bootstrap, cfg.threshold)
+	assert.Empty(t, report.Inconclusive)
+	assert.False(t, report.Significant)
+	WithConfidence(99.9)(&cfg)
+	report = bca(result.Samples, result.Samples, cfg.confidence/100, cfg.bootstrap, cfg.threshold)
+	assert.Equal(t, "uncertain", report.Inconclusive)
+}
+
 func TestCompare(t *testing.T) {
 	env := Environment{Hostname: "test", GOOS: "test", GOARCH: "test", GoVersion: "test",
 		CPUModel: "test", NumCPU: 8, GOMAXPROCS: 8, DurationNS: 10000000, CalibrationVersion: calibrationVersion,
@@ -409,6 +423,49 @@ type assertion struct {
 
 func (a *assertion) Errorf(format string, args ...any) {
 	a.failures = append(a.failures, fmt.Sprintf(format, args...))
+}
+
+func TestAllocationBaseline(t *testing.T) {
+	for _, scenario := range []string{"update", "dry run", "changed environment"} {
+		t.Run(scenario, func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.filename, cfg.codec, cfg.bootstrap = filepath.Join(t.TempDir(), "baseline.json"), jsonCodec{}, 500
+			cfg.dryRun = scenario == "dry run"
+			runner := &B{config: cfg}
+			baseline := Result{Name: "bench", Environment: captureEnvironment(time.Millisecond), Timestamp: 1, Allocs: []float64{15.4}}
+			current := baseline
+			current.Timestamp, current.Allocs = 2, []float64{9.2}
+			if scenario == "changed environment" {
+				current.Environment.GOMAXPROCS++
+			}
+			for i := range 100 {
+				value := float64((i * 3) % 7)
+				baseline.Samples = append(baseline.Samples, 100+value)
+				current.Samples = append(current.Samples, 100+value)
+				baseline.Calibration = append(baseline.Calibration, 10+value/100)
+				current.Calibration = append(current.Calibration, 13+value/100)
+			}
+			previous := map[string]Result{"bench": baseline}
+			require.NoError(t, (jsonCodec{}).save(cfg.filename, previous))
+			report := runner.record(current, previous, nil)
+			if scenario == "changed environment" {
+				assert.Equal(t, "changed", report.Inconclusive)
+			} else {
+				assert.Equal(t, "uncertain", report.Inconclusive)
+			}
+			saved := runner.loadResults()["bench"]
+			assert.Equal(t, baseline.Samples, saved.Samples)
+			assert.Equal(t, baseline.Calibration, saved.Calibration)
+			assert.Equal(t, baseline.Timestamp, saved.Timestamp)
+			assert.Equal(t, []float64{15.4}, previous["bench"].Allocs)
+			if scenario != "update" {
+				assert.Equal(t, baseline.Allocs, saved.Allocs)
+			} else {
+				assert.Equal(t, current.Allocs, saved.Allocs)
+				assert.Equal(t, allocSame, compareAllocs(saved.Allocs, []float64{9.3}), "the next run compares allocations against the latest run")
+			}
+		})
+	}
 }
 
 func TestRecord(t *testing.T) {

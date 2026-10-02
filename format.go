@@ -3,10 +3,7 @@
 
 package bench
 
-import (
-	"fmt"
-	"math"
-)
+import "fmt"
 
 type allocChange int
 
@@ -118,22 +115,15 @@ func formatAllocsWithChange(allocsPerOp float64, change allocChange) string {
 	}
 }
 
-func allocIntValue(allocsPerOp float64) int64 {
-	if allocsPerOp < 1 {
-		return 0
-	}
-	return int64(math.Round(allocsPerOp))
-}
-
 func compareAllocs(previous, current []float64) allocChange {
 	if len(previous) == 0 || len(current) == 0 {
 		return allocUnknown
 	}
 
-	prev := allocIntValue(median(previous))
-	curr := allocIntValue(median(current))
+	prev := median(previous)
+	curr := median(current)
 	switch {
-	case curr == prev:
+	case formatAllocs(curr) == formatAllocs(prev):
 		return allocSame
 	case curr < prev:
 		return allocBetter

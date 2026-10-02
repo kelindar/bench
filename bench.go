@@ -18,7 +18,7 @@ const (
 	defaultDuration   = 10 * time.Millisecond
 	defaultTableFmt   = "%-20s %-12s %-12s %-12s %-18s %-18s\n"
 	defaultFilename   = "bench.gob"
-	defaultConfidence = 99.9
+	defaultConfidence = 95.0
 	defaultThreshold  = 5.0
 	defaultBootstrap  = 100000
 )
@@ -247,7 +247,7 @@ func (r *B) record(result Result, previous map[string]Result, refSamples []float
 		vsPrev,
 		vsRef)
 
-	// Keep a comparable baseline when a run is inconclusive. Legacy files get
+	// Keep comparable timings when a run is inconclusive. Legacy files get
 	// one fresh baseline with calibration metadata on the next writable run.
 	if !exists || report.Inconclusive == "" ||
 		len(prevResult.Calibration) == 0 || len(result.Calibration) == 0 ||
@@ -258,6 +258,12 @@ func (r *B) record(result Result, previous map[string]Result, refSamples []float
 			len(result.Calibration) == len(result.Samples) &&
 			!r.usable(prevResult) && r.usable(result)) {
 		r.saveResult(result)
+	} else if len(result.Allocs) > 0 && prevResult.Environment.valid() &&
+		result.Environment.valid() && prevResult.Environment == result.Environment {
+		// Allocation icons compare the latest run even when its timings are
+		// inconclusive. The timing baseline and its timestamp stay together.
+		prevResult.Allocs = result.Allocs
+		r.saveResult(prevResult)
 	}
 	return
 }
@@ -292,16 +298,17 @@ func (r *B) compare(previous, current Result) Report {
 	return report
 }
 
-// usable permits replacing an inadequate baseline once a run has enough valid,
-// unclustered observations. It does not establish cross-run equivalence.
+// usable permits replacing an inadequate baseline once a run has enough valid
+// observations or blocks. It does not establish cross-run equivalence.
 func (r *B) usable(result Result) bool {
 	if !result.Environment.valid() || len(result.Calibration) != len(result.Samples) ||
-		!validSamples(result.Samples) || !validSamples(result.Calibration) ||
-		clustered(result.Samples, median(result.Samples)) || clustered(result.Calibration, median(result.Calibration)) {
+		!validSamples(result.Samples) || !validSamples(result.Calibration) {
 		return false
 	}
-	lower, _ := medianInterval(result.Samples, (1-r.confidence/100)/4)
-	return lower > 0
+	tail := (1 - r.confidence/100) / 4
+	lower, _ := blockInterval(result.Samples, tail, blockSize(result.Samples))
+	calibrationLow, _ := blockInterval(result.Calibration, tail, blockSize(result.Calibration))
+	return lower > 0 && calibrationLow > 0
 }
 
 // Assert runs benchmarks in dry-run mode and fails the test on a supported

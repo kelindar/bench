@@ -12,7 +12,8 @@ import (
 	"gonum.org/v1/gonum/stat/distuv"
 )
 
-// Report compares median timings. Intervals assume independent observations.
+// Report compares median timings. Intervals assume independent observations
+// or, for clustered samples, approximately independent consecutive blocks.
 type Report struct {
 	Delta         float64    // Delta is log(MedianVariant / MedianControl); positive is slower
 	CI            [2]float64 // CI is the confidence interval for Delta
@@ -56,14 +57,7 @@ func bcaWithSeed(control, experiment []float64, confidence float64, bootstrapSam
 			Samples:       bootstrapSamples,
 		}
 	}
-	if clustered(control, medianControl) || clustered(experiment, medianVariant) {
-		return Report{
-			Delta: originalLogRatio, Ratio: math.Exp(originalLogRatio),
-			CI: [2]float64{math.Inf(-1), math.Inf(1)}, RatioCI: [2]float64{0, math.Inf(1)},
-			MedianControl: medianControl, MedianVariant: medianVariant,
-			Confidence: confidence, Inconclusive: "uncertain",
-		}
-	}
+	controlBlock, variantBlock := blockSize(control), blockSize(experiment)
 	rng := bootstrapRNG(len(control), len(experiment), bootstrapSamples, seed)
 
 	bootstrapStats := make([]float64, 0, bootstrapSamples)
@@ -72,8 +66,8 @@ func bcaWithSeed(control, experiment []float64, confidence float64, bootstrapSam
 	for i := 0; i < bootstrapSamples; i++ {
 
 		// Resample with replacement using our seeded RNG
-		resampleWithReplacement(controlBootstrap, control, rng)
-		resampleWithReplacement(variantBootstrap, experiment, rng)
+		resampleBlocks(controlBootstrap, control, controlBlock, rng)
+		resampleBlocks(variantBootstrap, experiment, variantBlock, rng)
 
 		// Compute statistic for this bootstrap sample
 		controlBootMedian := medianInPlace(controlBootstrap)
@@ -96,7 +90,12 @@ func bcaWithSeed(control, experiment []float64, confidence float64, bootstrapSam
 
 	biasCorrection := computeBiasCorrection(originalLogRatio, bootstrapStats)
 
-	acceleration := computeAcceleration(control, experiment)
+	// The single-observation jackknife assumes independence. Clustered samples
+	// use bias correction without acceleration and wider block bounds below.
+	acceleration := 0.0
+	if controlBlock == 1 && variantBlock == 1 {
+		acceleration = computeAcceleration(control, experiment)
+	}
 	degenerate := degenerateBootstrap(bootstrapStats)
 
 	// Step 4: Compute BCa confidence interval
@@ -104,10 +103,10 @@ func bcaWithSeed(control, experiment []float64, confidence float64, bootstrapSam
 	lowerCI, upperCI := computeBCaCI(bootstrapStats, biasCorrection, acceleration, alpha)
 
 	// BCa is approximate, especially for small or tied samples. Never report a
-	// narrower interval than the exact order-statistic bounds for two medians.
+	// narrower interval than the order-statistic bounds for two medians.
 	// Bonferroni allocates alpha/4 to each of the four tails.
-	controlLow, controlHigh := medianInterval(control, alpha/4)
-	variantLow, variantHigh := medianInterval(experiment, alpha/4)
+	controlLow, controlHigh := blockInterval(control, alpha/4, controlBlock)
+	variantLow, variantHigh := blockInterval(experiment, alpha/4, variantBlock)
 	lowerCI = math.Min(lowerCI, math.Log(variantLow)-math.Log(controlHigh))
 	upperCI = math.Max(upperCI, math.Log(variantHigh)-math.Log(controlLow))
 	significant := !degenerate && isSignificant(lowerCI, upperCI, originalLogRatio, minChangePercent)
@@ -185,6 +184,46 @@ func logChoose(n, k int) float64 {
 	return combin.LogGeneralizedBinomial(float64(n), float64(k))
 }
 
+func blockSize(data []float64) int {
+	if !clustered(data, median(data)) {
+		return 1
+	}
+
+	// ponytail: sqrt(n) blocks cover short dependence; use a measured correlation
+	// horizon if workloads exhibit longer dependence. Arbitrary drift is not IID.
+	return int(math.Ceil(math.Sqrt(float64(len(data)))))
+}
+
+// blockInterval bounds the raw population median using block minima and maxima.
+// Each minimum is below the median with probability at least 1/2; each maximum
+// is above it with probability at least 1/2. Binomial ranks are conservative when
+// blocks are independent, without assuming independence inside each block.
+func blockInterval(data []float64, tail float64, block int) (float64, float64) {
+	if block == 1 {
+		return medianInterval(data, tail)
+	}
+
+	n := len(data) / block
+	if n == 0 {
+		return 0, math.Inf(1)
+	}
+	lows, highs := make([]float64, n), make([]float64, n)
+	for i := range n {
+		end := (i + 1) * block
+		if i == n-1 {
+			end = len(data)
+		}
+		lows[i], highs[i] = data[i*block], data[i*block]
+		for _, value := range data[i*block : end] {
+			lows[i] = min(lows[i], value)
+			highs[i] = max(highs[i], value)
+		}
+	}
+	lower, _ := medianInterval(lows, tail)
+	_, upper := medianInterval(highs, tail)
+	return lower, upper
+}
+
 func validSamples(data []float64) bool {
 	if len(data) == 0 {
 		return false
@@ -233,12 +272,19 @@ func isSignificant(lowerCI, upperCI, logRatio, minChangePercent float64) bool {
 	return lowerCI > threshold || upperCI < -threshold
 }
 
-// resampleWithReplacement performs bootstrap resampling with replacement using provided RNG
-func resampleWithReplacement(resampled, data []float64, rng *rand.Rand) {
+// resampleBlocks draws consecutive circular blocks with replacement. A block
+// size of one is the ordinary independent bootstrap.
+func resampleBlocks(resampled, data []float64, block int, rng *rand.Rand) {
 	n := len(data)
-	for i := 0; i < n; i++ {
+	for i := 0; i < len(resampled); i += block {
 		idx := rng.IntN(n)
-		resampled[i] = data[idx]
+		for j := 0; j < min(block, len(resampled)-i); j++ {
+			resampled[i+j] = data[idx]
+			idx++
+			if idx == n {
+				idx = 0
+			}
+		}
 	}
 }
 

@@ -20,11 +20,13 @@ A statistical benchmarking library for Go with saved baselines, CPU calibration,
 
 This library applies a **bias-corrected and accelerated** (BCa) bootstrap interval to the median timing ratio. It resamples the raw measurements **100 000 times** by default, evaluates `log(variant/control)`, then adjusts the percentile endpoints with bias correction and the multi-sample jackknife acceleration. Working in log-ratio space makes improvements and regressions symmetric.
 
-BCa can be overconfident with few observations or tied values. The reported interval is therefore widened to include non-interpolated [binomial order-statistic bounds for the two population medians](https://itl.nist.gov/div898/software/dataplot/refman1/auxillar/mediancl.htm). Each of the four tails receives one quarter of the error budget. Under independent, identically distributed observations, these bounds provide at least the requested coverage. This is deliberately conservative: at the default 99.9% confidence, fewer than 12 observations in either group cannot establish a change, regardless of the number of bootstrap resamples.
+BCa can be overconfident with few observations or tied values. The reported interval is therefore widened to include non-interpolated [binomial order-statistic bounds for the two population medians](https://itl.nist.gov/div898/software/dataplot/refman1/auxillar/mediancl.htm). Each of the four tails receives one quarter of the error budget. Under independent, identically distributed observations, these bounds provide at least the requested coverage. This is deliberately conservative: at the default 95% confidence, fewer than 7 observations in either group cannot establish a change, regardless of the number of bootstrap resamples.
 
-Timings must be finite and positive. An exact lower-tail [runs test](https://www.itl.nist.gov/div898/handbook/eda/section3/eda35d.htm) at 1% screens for clustering above and below the median, omitting ties. Detected clustering produces an `uncertain` result. This screen catches some drift and serial dependence; passing it does **not** prove independence. Confidence levels apply to individual comparisons, not to an entire benchmark suite or repeated CI runs.
+Timings must be finite and positive. An exact lower-tail [runs test](https://www.itl.nist.gov/div898/handbook/eda/section3/eda35d.htm) at 1% screens for clustering above and below the median, omitting ties. A clustered series uses [block resampling](https://stat.ethz.ch/R-manual/R-devel/library/boot/html/tsboot.html) with consecutive circular blocks of length `ceil(sqrt(n))`. Bias correction is retained, but the independent-observation jackknife acceleration is disabled. Its interval is widened using binomial ranks over the minima and maxima of non-overlapping blocks, preserving the raw population-median target. This reduces the effective observation count rather than vetoing every clustered comparison. At 95% confidence, fewer than seven blocks still produce `uncertain`.
 
-The practical threshold is interpreted as a symmetric multiplicative timing ratio in log space: `WithThreshold(5)` requires the whole confidence interval to clear `log(1.05)` for regressions or `-log(1.05)` for improvements. Allocation indicators are simple median comparisons and are not confidence intervals.
+Block inference assumes stationary timings with dependence that decays across blocks. The fixed block length is a heuristic; its coverage is approximate for actual time series, and passing the runs test does **not** prove independence. Confidence levels apply to individual comparisons, not to an entire benchmark suite or repeated CI runs.
+
+The practical threshold is interpreted as a symmetric multiplicative timing ratio in log space: `WithThreshold(5)` requires the whole confidence interval to clear `log(1.05)` for regressions or `-log(1.05)` for improvements. Allocation indicators compare the rounded median values displayed in the table and are not confidence intervals.
 
 ### Comparing saved baselines under CPU load
 
@@ -44,7 +46,9 @@ The library keeps the measured timing ratio and displays `❔ <code>` whenever i
 
 When the entire interval is within the practical tolerance, the output is `🟰 similar`.
 
-Inconclusive comparisons have `Report.Significant == false` and a nonempty `Report.Inconclusive`. They preserve a usable saved baseline. Legacy files and inadequate baselines can be refreshed by a writable run; an inadequate baseline is replaced only when the new samples pass the quality checks. For an intentional environment change, use a new baseline filename. Saved reference files receive the same checks. Live references still run in alternating order and use conservative median bounds.
+The default confidence is 95% per comparison. Use `WithConfidence(99.9)` to retain the stricter policy from earlier versions. For wide timing intervals, collect more samples with `WithSamples` or longer samples with `WithDuration`. For clustered samples or changed calibration, rerun under stable load. More bootstrap resamples cannot compensate for noisy measurements.
+
+Inconclusive comparisons have `Report.Significant == false` and a nonempty `Report.Inconclusive`. They preserve a usable saved timing baseline. Allocation samples advance to the latest run when its environment matches, even if timing is inconclusive; dry runs do not update either. Legacy files and inadequate baselines can be refreshed by a writable run; an inadequate timing baseline is replaced only when the new samples pass the quality checks. For an intentional environment change, use a new baseline filename. Saved reference files receive the same checks. Live references still run in alternating order and use conservative median bounds.
 
 The returned `Report` describes the comparison with the previous saved result. A first run prints `❔ new` and returns `Inconclusive: "new"`; a filtered benchmark returns `Inconclusive: "filtered"`.
 
@@ -96,7 +100,7 @@ func main() {
     },
     bench.WithFile("results.json"),   // optional: set results file
     bench.WithFilter("set"),          // optional: only run benchmarks starting with "set"
-    bench.WithConfidence(95.0),       // optional: set confidence level (default 99.9%)
+    bench.WithConfidence(99.9),       // optional: stricter confidence (default 95%)
     bench.WithThreshold(10.0),        // optional: require at least 10% practical change
     bench.WithBootstrap(50_000),      // optional: set bootstrap resamples
     bench.WithSeed(42),               // optional: mix in a deterministic bootstrap seed

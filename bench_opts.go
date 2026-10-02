@@ -73,7 +73,7 @@ func WithFilter(prefix string) Option {
 	}
 }
 
-// WithSamples sets the number of samples to collect per benchmark
+// WithSamples sets the number of samples to collect per benchmark (default 100).
 func WithSamples(n int) Option {
 	return func(c *config) {
 		if n < minSamples {
@@ -83,7 +83,7 @@ func WithSamples(n int) Option {
 	}
 }
 
-// WithDuration sets the duration for each sample
+// WithDuration sets the duration for each sample (default 10 ms).
 func WithDuration(d time.Duration) Option {
 	return func(c *config) {
 		if d <= 0 {
@@ -111,7 +111,8 @@ func WithDryRun() Option {
 	}
 }
 
-// WithConfidence sets the confidence level for statistical significance tests
+// WithConfidence sets the confidence level in percent (default 95).
+// Higher confidence requires more evidence for both changes and similarity.
 func WithConfidence(level float64) Option {
 	return func(c *config) {
 		if !isFinite(level) || level <= 0 || level >= 100 {

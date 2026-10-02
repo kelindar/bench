@@ -249,28 +249,101 @@ func TestClustered(t *testing.T) {
 	assert.False(t, clustered([]float64{1, 1, 1}, 1))
 }
 
-func TestDependence(t *testing.T) {
-	rng := rand.New(rand.NewPCG(21, 79))
-	flagged, inconclusive := 0, 0
-	for trial := 0; trial < 100; trial++ {
-		control, variant := make([]float64, 100), make([]float64, 100)
-		for _, data := range [][]float64{control, variant} {
-			x := rng.NormFloat64()
-			for i := range data {
-				x = 0.9*x + math.Sqrt(1-0.9*0.9)*rng.NormFloat64()
-				data[i] = math.Exp(0.3 * x)
-			}
-		}
-		report := bca(control, variant, 0.999, 200, 0)
-		if report.Significant {
-			flagged++
-		}
-		if report.Inconclusive != "" {
-			inconclusive++
+func TestClusteredChange(t *testing.T) {
+	fixture := (jsonCodec{}).load("testdata/clustered.json")
+	control, variant := fixture["control"].Samples, fixture["variant"].Samples
+	assert.Len(t, control, 100)
+	assert.Len(t, variant, 100)
+	report := bca(control, variant, 0.95, 1000, 5)
+	assert.True(t, report.Significant, "clustered timings should widen the interval rather than veto a fourfold speedup")
+	assert.Empty(t, report.Inconclusive)
+	assert.Greater(t, report.RatioCI[0], 0.0)
+	assert.Less(t, report.RatioCI[1], 1/1.05)
+	for _, block := range []int{5, 10, 20} {
+		low, _ := blockInterval(control, (1-0.95)/4, block)
+		_, high := blockInterval(variant, (1-0.95)/4, block)
+		if block == 20 {
+			assert.Zero(t, low, "five blocks cannot attain 95 percent confidence")
+			assert.True(t, math.IsInf(high, 1))
+		} else {
+			assert.Less(t, high/low, 1/1.05, "the large effect survives different dependence horizons")
 		}
 	}
-	assert.Zero(t, flagged, "equal population medians with correlated timings must not produce false flags in this simulation")
-	assert.GreaterOrEqual(t, inconclusive, 95)
+}
+
+func TestBlockInterval(t *testing.T) {
+	data := make([]float64, 100)
+	for i := range data {
+		data[i] = 100 + float64(i)/100
+	}
+	assert.Equal(t, 10, blockSize(data))
+	low, high := blockInterval(data, .05/4, 10)
+	assert.InDelta(t, 100.1, low, 1e-12)
+	assert.InDelta(t, 100.89, high, 1e-12)
+	assert.Equal(t, 100.0, data[0], "preserve collection order")
+	report := bca(data, data, .95, 500, 5)
+	assert.Empty(t, report.Inconclusive, "small clustered variation can still establish similarity")
+	assert.False(t, report.Significant)
+
+	low, high = blockInterval(data[:25], .05/4, 5)
+	assert.Zero(t, low)
+	assert.True(t, math.IsInf(high, 1))
+	low, high = blockInterval(data[:1], .05/4, 2)
+	assert.Zero(t, low)
+	assert.True(t, math.IsInf(high, 1))
+}
+
+func TestDependence(t *testing.T) {
+	for _, confidence := range []float64{0.95, 0.999} {
+		rng := rand.New(rand.NewPCG(21, 79))
+		flagged, inconclusive := 0, 0
+		for trial := 0; trial < 100; trial++ {
+			control, variant := make([]float64, 100), make([]float64, 100)
+			for _, data := range [][]float64{control, variant} {
+				x := rng.NormFloat64()
+				for i := range data {
+					x = 0.9*x + math.Sqrt(1-0.9*0.9)*rng.NormFloat64()
+					data[i] = math.Exp(0.3 * x)
+				}
+			}
+			report := bca(control, variant, confidence, 200, 0)
+			if report.Significant {
+				flagged++
+			}
+			if report.Inconclusive != "" {
+				inconclusive++
+			}
+		}
+		t.Logf("confidence %.3f: %d false flags, %d inconclusive", confidence, flagged, inconclusive)
+		assert.Zero(t, flagged, "equal population medians with correlated timings must not produce false flags in this simulation")
+		assert.GreaterOrEqual(t, inconclusive, 95)
+	}
+}
+
+func TestBlockCoverage(t *testing.T) {
+	rng := rand.New(rand.NewPCG(37, 53))
+	misses := 0
+	const trials = 500
+	for trial := range trials {
+		control, variant := make([]float64, 100), make([]float64, 100)
+		for group, data := range [][]float64{control, variant} {
+			for i := 0; i < len(data); i += 10 {
+				value := math.Exp(0.2 * rng.NormFloat64())
+				if group == 1 {
+					value *= 1.2
+				}
+				for j := range 10 {
+					data[i+j] = value
+				}
+			}
+		}
+		report := bcaWithSeed(control, variant, .95, 200, 5, uint64(trial+1))
+		if report.RatioCI[0] > 1.2 || report.RatioCI[1] < 1.2 {
+			misses++
+		}
+	}
+	t.Logf("%d/%d block intervals missed the true ratio", misses, trials)
+	assert.LessOrEqual(t, misses, 25, "ten independent blocks must not be treated as 100 independent observations")
 }
 
 func TestValidation(t *testing.T) {
@@ -342,11 +415,19 @@ func TestBootstrap(t *testing.T) {
 	data := []float64{1, 2, 3, 4}
 	want := append([]float64(nil), data...)
 	resampled := make([]float64, len(data))
-	resampleWithReplacement(resampled, data, rand.New(rand.NewPCG(3, 5)))
+	resampleBlocks(resampled, data, 1, rand.New(rand.NewPCG(3, 5)))
 	assert.Equal(t, want, data)
 	for _, value := range resampled {
 		assert.Contains(t, data, value)
 	}
+	resampled = make([]float64, 100)
+	resampleBlocks(resampled, data, 3, rand.New(rand.NewPCG(7, 11)))
+	for i := 0; i < len(resampled); i += 3 {
+		for j := 1; j < min(3, len(resampled)-i); j++ {
+			assert.Equal(t, float64(int(resampled[i+j-1])%len(data)+1), resampled[i+j], "preserve order inside each circular block")
+		}
+	}
+	assert.Equal(t, want, data)
 }
 
 func TestNumerics(t *testing.T) {
@@ -421,7 +502,7 @@ func TestPower(t *testing.T) {
 			control[i] = 100 * math.Exp(0.10*rng.NormFloat64())
 			variant[i] = 1.25 * 100 * math.Exp(0.10*rng.NormFloat64())
 		}
-		result := bcaWithSeed(control, variant, 0.95, 300, 5, uint64(trial+1))
+		result := bcaWithSeed(control, variant, defaultConfidence/100, 300, 5, uint64(trial+1))
 		if result.Significant {
 			regressions++
 		}
@@ -436,7 +517,7 @@ func TestPower(t *testing.T) {
 			control[i] = 100 * math.Exp(0.10*rng.NormFloat64())
 			variant[i] = 100 * math.Exp(0.10*rng.NormFloat64())
 		}
-		result := bcaWithSeed(control, variant, 0.95, 300, 5, uint64(trials+trial+1))
+		result := bcaWithSeed(control, variant, defaultConfidence/100, 300, 5, uint64(trials+trial+1))
 		if result.Significant {
 			falsePositives++
 		}
