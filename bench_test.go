@@ -454,18 +454,50 @@ func TestAllocationBaseline(t *testing.T) {
 				assert.Equal(t, "uncertain", report.Inconclusive)
 			}
 			saved := runner.loadResults()["bench"]
-			assert.Equal(t, baseline.Samples, saved.Samples)
-			assert.Equal(t, baseline.Calibration, saved.Calibration)
-			assert.Equal(t, baseline.Timestamp, saved.Timestamp)
 			assert.Equal(t, []float64{15.4}, previous["bench"].Allocs)
-			if scenario != "update" {
-				assert.Equal(t, baseline.Allocs, saved.Allocs)
+			if scenario == "dry run" {
+				assert.Equal(t, baseline, saved)
 			} else {
-				assert.Equal(t, current.Allocs, saved.Allocs)
+				assert.Equal(t, current, saved)
 				assert.Equal(t, allocSame, compareAllocs(saved.Allocs, []float64{9.3}), "the next run compares allocations against the latest run")
 			}
 		})
 	}
+}
+
+func TestPreviousRun(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.filename, cfg.codec, cfg.bootstrap = filepath.Join(t.TempDir(), "previous.json"), jsonCodec{}, 1000
+	cfg.referenceFilename = filepath.Join(t.TempDir(), "reference.json")
+	runner := &B{config: cfg}
+	baseline := Result{Name: "bench", Environment: captureEnvironment(time.Millisecond), Timestamp: 1}
+	first := Result{Name: "bench", Environment: baseline.Environment, Timestamp: 2}
+	for i := range 100 {
+		value := float64((i * 3) % 7)
+		baseline.Samples = append(baseline.Samples, 100+value)
+		first.Samples = append(first.Samples, 104+value)
+		baseline.Calibration = append(baseline.Calibration, 10+value/100)
+		first.Calibration = append(first.Calibration, 10+value/100)
+	}
+	previous := map[string]Result{"bench": baseline}
+	require.NoError(t, (jsonCodec{}).save(cfg.filename, previous))
+	require.NoError(t, (jsonCodec{}).save(cfg.referenceFilename, previous))
+	referenceBefore, err := os.ReadFile(cfg.referenceFilename)
+	require.NoError(t, err)
+
+	report := runner.record(first, previous, nil)
+	assert.Equal(t, "uncertain", report.Inconclusive, "the interval crosses the practical threshold")
+	assert.Equal(t, first, runner.loadResults()["bench"], "uncertainty must not freeze the previous-run snapshot")
+	second := first
+	second.Timestamp = 3
+	report = runner.record(second, runner.loadResults(), nil)
+	assert.Empty(t, report.Inconclusive, "consecutive unchanged runs compare against each other")
+	assert.False(t, report.Significant)
+	assert.Equal(t, second, runner.loadResults()["bench"])
+	assert.Equal(t, baseline, previous["bench"], "leave caller-owned input unchanged")
+	referenceAfter, err := os.ReadFile(cfg.referenceFilename)
+	require.NoError(t, err)
+	assert.Equal(t, referenceBefore, referenceAfter, "saved references remain fixed")
 }
 
 func TestRecord(t *testing.T) {
@@ -494,10 +526,10 @@ func TestRecord(t *testing.T) {
 				for i := range current.Calibration {
 					current.Calibration[i] *= 1.25
 				}
-				preserved, wantReason = true, "uncertain"
+				wantReason = "uncertain"
 			case "setup changed":
 				current.Environment.GOMAXPROCS++
-				preserved, wantReason = true, "changed"
+				wantReason = "changed"
 			case "repair baseline", "repair rejected":
 				baseline.Samples, baseline.Calibration = baseline.Samples[:2], baseline.Calibration[:2]
 				wantReason = "uncertain"
@@ -532,7 +564,7 @@ func TestRecord(t *testing.T) {
 			after, err := os.ReadFile(file)
 			require.NoError(t, err)
 			if preserved {
-				assert.Equal(t, before, after, "inconclusive or dry runs must preserve the baseline byte for byte")
+				assert.Equal(t, before, after, "invalid or dry runs must preserve the baseline byte for byte")
 			} else {
 				assert.Equal(t, current, (jsonCodec{}).load(file)["bench"])
 			}

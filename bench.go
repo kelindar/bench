@@ -208,8 +208,8 @@ func (r *B) run(name string, ourFn func(int) int, refFn func(int) int) (report R
 	return r.record(result, prevResults, refSamples)
 }
 
-// record compares collected measurements, reports assertions, and updates a
-// usable baseline. Input results are read-only; persistence uses the codec.
+// record compares collected measurements, reports assertions, and stores the
+// latest usable run. Input results are read-only; persistence uses the codec.
 func (r *B) record(result Result, previous map[string]Result, refSamples []float64) (report Report) {
 	name := result.Name
 	nsPerOp := median(result.Samples)
@@ -247,16 +247,9 @@ func (r *B) record(result Result, previous map[string]Result, refSamples []float
 		vsPrev,
 		vsRef)
 
-	// Keep comparable timings when a run is inconclusive. Legacy files get
-	// one fresh baseline with calibration metadata on the next writable run.
-	if !exists || report.Inconclusive == "" ||
-		len(prevResult.Calibration) == 0 || len(result.Calibration) == 0 ||
-		(report.Inconclusive == "uncertain" &&
-			prevResult.Environment.valid() && result.Environment.valid() &&
-			prevResult.Environment == result.Environment &&
-			len(prevResult.Calibration) == len(prevResult.Samples) &&
-			len(result.Calibration) == len(result.Samples) &&
-			!r.usable(prevResult) && r.usable(result)) {
+	// "vs prev" follows the latest usable run, including inconclusive timings.
+	// Comparability governs the verdict, not whether to freeze old measurements.
+	if !exists || r.usable(result) {
 		r.saveResult(result)
 	} else if len(result.Allocs) > 0 && prevResult.Environment.valid() &&
 		result.Environment.valid() && prevResult.Environment == result.Environment {
@@ -298,8 +291,8 @@ func (r *B) compare(previous, current Result) Report {
 	return report
 }
 
-// usable permits replacing an inadequate baseline once a run has enough valid
-// observations or blocks. It does not establish cross-run equivalence.
+// usable permits saving a run with enough valid observations or blocks.
+// It does not establish cross-run equivalence.
 func (r *B) usable(result Result) bool {
 	if !result.Environment.valid() || len(result.Calibration) != len(result.Samples) ||
 		!validSamples(result.Samples) || !validSamples(result.Calibration) {
